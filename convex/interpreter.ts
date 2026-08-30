@@ -9,7 +9,7 @@ export type Interpretation = {
 export function interpretResponse(
   rawResponse: string,
   parentName: string,
-  routineType: string,
+  topics: string[],
 ): Interpretation {
   const text = rawResponse.toLocaleLowerCase();
   const medicineTaken =
@@ -20,11 +20,26 @@ export function interpretResponse(
   const wantsVideoCall = /(video call|video-call)/i.test(text);
   const mentionsGrandson = /(grandson|beta|son)/i.test(text);
   const clearlyOkay = medicineTaken || /\b(i am|i'm|im) (okay|ok|fine)\b/i.test(text);
+  const feelingOkay = /(feeling|feel|tabiyat|haal).*(okay|ok|fine|good|theek|accha)/i.test(text);
+  const activityDone =
+    /(walk|walking|exercise|activity|yoga).*(done|did|ho gayi|kar li)/i.test(text) ||
+    /(done|did|ho gayi|kar li).*(walk|walking|exercise|activity|yoga)/i.test(text);
+  const activityNotDone =
+    /(walk|walking|exercise|activity|yoga).*(nahi|not|didn't|did not)/i.test(text) ||
+    /(nahi|not|didn't|did not).*(walk|walking|exercise|activity|yoga)/i.test(text);
 
-  const routineOutcome =
-    routineType === "Medication" && medicineTaken
-      ? "Medicine taken."
-      : "Response received — review the original reply for details.";
+  const confirmedOutcomes: string[] = [];
+  if (topics.includes("Medication") && medicineTaken) confirmedOutcomes.push("Medicine taken.");
+  if (topics.includes("How they're feeling") && feelingOkay) {
+    confirmedOutcomes.push("Feeling okay.");
+  }
+  if (topics.includes("Exercise") || topics.includes("Exercise / activity")) {
+    if (activityNotDone) confirmedOutcomes.push("Walk not done separately.");
+    else if (activityDone) confirmedOutcomes.push("Activity completed.");
+  }
+  const routineOutcome = confirmedOutcomes.length
+    ? confirmedOutcomes.join(" ")
+    : "Response received — review the original reply for details.";
 
   return {
     status: clearlyOkay ? "OK" : "UNCONFIRMED",

@@ -21,6 +21,7 @@
 .kicker { margin-bottom: 7px; color: #738078; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .card h1 { font-size: clamp(30px, 6vw, 42px); line-height: 1.1; }
 .form { display: grid; gap: 22px; }
+.twoColumns, .scheduleFields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form label, .form legend { color: #34423a; font-size: 14px; font-weight: 700; }
 .form label > span { color: #858b87; font-weight: 400; }
 .form input:not([type="radio"]), .form textarea, .form select { width: 100%; margin-top: 8px; border: 1px solid #ccd2cd; border-radius: 12px; padding: 14px; color: #1e2d25; background: #fff; font: inherit; font-size: 16px; line-height: 1.45; outline: none; }
@@ -32,9 +33,33 @@
 .choice span { display: block; border: 1px solid #d1d6d2; border-radius: 999px; padding: 10px 16px; color: #4e5752; background: #fff; cursor: pointer; }
 .choice input:checked + span { border-color: #2f624c; color: #244d3b; background: #eaf2ed; box-shadow: inset 0 0 0 1px #2f624c; }
 .choice input:focus-visible + span { outline: 3px solid rgba(47,98,76,.2); }
+.topicGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.topicChoice { position: relative; }
+.topicChoice input { position: absolute; opacity: 0; pointer-events: none; }
+.topicChoice span { min-height: 52px; display: flex; align-items: center; border: 1px solid #d1d6d2; border-radius: 12px; padding: 12px 14px; color: #4e5752; background: #fff; cursor: pointer; }
+.topicChoice input:checked + span { border-color: #2f624c; color: #244d3b; background: #eaf2ed; box-shadow: inset 0 0 0 1px #2f624c; }
+.topicChoice input:checked + span::before { content: "✓"; margin-right: 9px; font-weight: 800; }
+.toneExample { margin-top: 14px; border-left: 3px solid #8aa896; border-radius: 0 10px 10px 0; padding: 13px 15px; background: #f2f5f1; }
+.toneExample span { color: #718078; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.toneExample p { margin-top: 5px; color: #35453c; font-size: 14px; font-weight: 400; line-height: 1.55; }
+.intentList { display: grid; gap: 10px; margin-top: 10px; }
+.intentChoice { position: relative; }
+.intentChoice input { position: absolute; opacity: 0; pointer-events: none; }
+.intentChoice > span { display: grid; gap: 4px; border: 1px solid #d1d6d2; border-radius: 12px; padding: 13px 15px; color: #35423b; background: #fff; cursor: pointer; }
+.intentChoice strong { font-size: 14px; }
+.intentChoice small { color: #778079; font-size: 12px; font-weight: 400; }
+.intentChoice input:checked + span { border-color: #2f624c; background: #eaf2ed; box-shadow: inset 0 0 0 1px #2f624c; }
 .hint, .explainer { color: #747c77; font-size: 13px; line-height: 1.5; }
 .hint { margin-top: 9px; }
 .explainer { margin: -12px 0 24px 58px; }
+.explainerPreview { margin: -12px 0 26px 58px; color: #747c77; font-size: 14px; }
+.messagePreview { position: relative; margin: 8px 0 26px; border: 1px solid #d9e1da; border-radius: 18px 18px 18px 5px; padding: 22px; background: #edf4ef; }
+.messagePreview span { display: block; margin-bottom: 8px; color: #537061; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.messagePreview p { color: #243a2f; font-size: 17px; line-height: 1.65; }
+.previewEditor { display: block; margin: 8px 0 26px; color: #34423a; font-size: 14px; font-weight: 700; }
+.previewEditor textarea { width: 100%; margin-top: 8px; border: 1px solid #376a54; border-radius: 14px; padding: 16px; color: #1e2d25; background: #fff; font: inherit; font-size: 16px; line-height: 1.55; resize: vertical; outline: 3px solid rgba(55,106,84,.1); }
+.previewActions { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: stretch; }
+.secondaryButton { min-height: 54px; border: 1px solid #bfc9c2; border-radius: 14px; padding: 13px 18px; color: #315847; background: #fff; cursor: pointer; font: inherit; font-weight: 700; }
 .textButton { width: fit-content; margin-top: -10px; border: 0; border-bottom: 1px solid #80988c; padding: 2px 0; color: #315d49; background: transparent; cursor: pointer; font: inherit; font-size: 14px; font-weight: 700; }
 .error { border-radius: 10px; padding: 11px 13px; color: #8c302b; background: #fff0ee; font-size: 14px; }
 .resultCard { position: relative; overflow: hidden; padding-top: 46px; }
@@ -64,4 +89,6 @@
   .stepIcon { width: 34px; height: 34px; }
   .explainer { margin-left: 46px; }
   .resultRow { grid-template-columns: 92px 1fr; }
+  .twoColumns, .scheduleFields, .topicGrid, .previewActions { grid-template-columns: 1fr; }
+  .explainerPreview { margin-left: 46px; }
 }
