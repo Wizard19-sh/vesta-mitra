@@ -8,13 +8,19 @@
  * @module
  */
 
+import type * as interpreter from "../interpreter.js";
+import type * as mitra from "../mitra.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  interpreter: typeof interpreter;
+  mitra: typeof mitra;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
