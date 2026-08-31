@@ -29,13 +29,18 @@ export function interpretResponse(
     /(nahi|not|didn't|did not).*(walk|walking|exercise|activity|yoga)/i.test(text);
 
   const confirmedOutcomes: string[] = [];
-  if (topics.includes("Medication") && medicineTaken) confirmedOutcomes.push("Medicine taken.");
+  if (topics.includes("Medication") && medicineTaken) {
+    confirmedOutcomes.push(`${parentName} reported taking their medicine.`);
+  }
   if (topics.includes("How they're feeling") && feelingOkay) {
-    confirmedOutcomes.push("Feeling okay.");
+    confirmedOutcomes.push(`${parentName} reported feeling okay.`);
   }
   if (topics.includes("Exercise") || topics.includes("Exercise / activity")) {
-    if (activityNotDone) confirmedOutcomes.push("Walk not done separately.");
-    else if (activityDone) confirmedOutcomes.push("Activity completed.");
+    if (activityNotDone) {
+      confirmedOutcomes.push(`${parentName} reported not completing a separate walk.`);
+    } else if (activityDone) {
+      confirmedOutcomes.push(`${parentName} reported completing their activity.`);
+    }
   }
   const routineOutcome = confirmedOutcomes.length
     ? confirmedOutcomes.join(" ")
@@ -44,11 +49,11 @@ export function interpretResponse(
   return {
     status: clearlyOkay ? "OK" : "UNCONFIRMED",
     overall: clearlyOkay
-      ? `${parentName} seems okay.`
+      ? `${parentName} reported that they are okay.`
       : `${parentName} replied, but this check-in isn’t confirmed yet.`,
     routineOutcome,
     usefulContext: withRelatives
-      ? "Out with relatives."
+      ? `${parentName} reported being out with relatives.`
       : "They shared an update.",
     childAction:
       wantsVideoCall && mentionsGrandson

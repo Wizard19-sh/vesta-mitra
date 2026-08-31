@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify:w1": "node scripts/verify-w1.mjs",
+    "verify:w2": "node scripts/verify-w2.mjs"
   },
   "dependencies": {
     "convex": "^1.45.0",

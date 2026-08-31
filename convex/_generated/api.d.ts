@@ -8,8 +8,14 @@
  * @module
  */
 
+import type * as agentRuns from "../agentRuns.js";
 import type * as interpreter from "../interpreter.js";
+import type * as messageTransport from "../messageTransport.js";
 import type * as mitra from "../mitra.js";
+import type * as mitraInbound from "../mitraInbound.js";
+import type * as mitraRoutines from "../mitraRoutines.js";
+import type * as mitraRuntime from "../mitraRuntime.js";
+import type * as vesta from "../vesta.js";
 
 import type {
   ApiFromModules,
@@ -18,8 +24,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  agentRuns: typeof agentRuns;
   interpreter: typeof interpreter;
+  messageTransport: typeof messageTransport;
   mitra: typeof mitra;
+  mitraInbound: typeof mitraInbound;
+  mitraRoutines: typeof mitraRoutines;
+  mitraRuntime: typeof mitraRuntime;
+  vesta: typeof vesta;
 }>;
 
 /**
