@@ -135,6 +135,7 @@ export const rememberPreference = mutation({
     key: v.string(),
     value: v.string(),
     source: preferenceSource,
+    expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await ownedHousehold(ctx, args.householdId, args.ownerKey);
@@ -144,6 +145,12 @@ export const rememberPreference = mutation({
 
     const category = requiredText(args.category, "Preference category", 80);
     const key = requiredText(args.key, "Preference key", 120);
+    if (
+      args.expiresAt !== undefined &&
+      (!Number.isFinite(args.expiresAt) || args.expiresAt <= Date.now())
+    ) {
+      throw new Error("Preference expiry must be a future timestamp");
+    }
     const now = Date.now();
     const existing = await ctx.db
       .query("preferences")
@@ -173,6 +180,7 @@ export const rememberPreference = mutation({
       value: requiredText(args.value, "Preference value", 2_000),
       source: args.source,
       active: true,
+      expiresAt: args.expiresAt,
       createdAt: now,
       updatedAt: now,
     });
@@ -208,7 +216,11 @@ export const listPreferences = query({
       .collect();
     return includeInactive
       ? preferences
-      : preferences.filter((preference) => preference.active);
+      : preferences.filter(
+          (preference) =>
+            preference.active &&
+            (preference.expiresAt === undefined || preference.expiresAt > Date.now()),
+        );
   },
 });
 
@@ -336,7 +348,11 @@ export const getHouseholdContext = query({
     return {
       household,
       members,
-      preferences: preferences.filter((preference) => preference.active),
+      preferences: preferences.filter(
+        (preference) =>
+          preference.active &&
+          (preference.expiresAt === undefined || preference.expiresAt > Date.now()),
+      ),
     };
   },
 });

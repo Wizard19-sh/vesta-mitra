@@ -1,6 +1,14 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
+const nutrition = v.object({
+  caloriesKcal: v.number(),
+  proteinG: v.number(),
+  carbohydratesG: v.number(),
+  fatG: v.number(),
+  fibreG: v.number(),
+});
+
 export default defineSchema({
   households: defineTable({
     ownerKey: v.string(),
@@ -36,6 +44,7 @@ export default defineSchema({
       v.literal("agent_observation"),
     ),
     active: v.boolean(),
+    expiresAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -94,7 +103,15 @@ export default defineSchema({
     memberId: v.optional(v.id("members")),
     communicationEndpointId: v.optional(v.id("communicationEndpoints")),
     checkInId: v.optional(v.id("checkIns")),
+    tarlaExecutionId: v.optional(v.id("tarlaExecutions")),
     runId: v.optional(v.id("agentRuns")),
+    agent: v.optional(
+      v.union(
+        v.literal("mitra"),
+        v.literal("tarla"),
+        v.literal("vesta"),
+      ),
+    ),
     senderAddress: v.string(),
     channel: v.string(),
     signalType: v.union(
@@ -119,23 +136,446 @@ export default defineSchema({
       "communicationEndpointId",
       "timestamp",
     ])
-    .index("by_check_in", ["checkInId"]),
+    .index("by_check_in", ["checkInId"])
+    .index("by_tarla_execution", ["tarlaExecutionId"]),
+
+  tarlaHouseholdProfiles: defineTable({
+    householdId: v.id("households"),
+    mealsPreparedAtHome: v.array(v.string()),
+    usualMealTimes: v.array(
+      v.object({
+        meal: v.string(),
+        time: v.string(),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_household", ["householdId"]),
+
+  tarlaMemberProfiles: defineTable({
+    householdId: v.id("households"),
+    memberId: v.id("members"),
+    dietaryType: v.union(
+      v.literal("vegetarian"),
+      v.literal("eggetarian"),
+      v.literal("non_vegetarian"),
+    ),
+    activityLevel: v.optional(
+      v.union(
+        v.literal("sedentary"),
+        v.literal("lightly_active"),
+        v.literal("moderately_active"),
+        v.literal("very_active"),
+        v.literal("extra_active"),
+      ),
+    ),
+    allergies: v.array(v.string()),
+    dislikedFoods: v.array(v.string()),
+    avoidedFoods: v.array(v.string()),
+    limitedFoods: v.array(v.string()),
+    favouriteFoods: v.array(v.string()),
+    mealsAtHome: v.array(v.string()),
+    servingEquivalent: v.number(),
+    foodContext: v.optional(v.string()),
+    cookNotes: v.optional(v.string()),
+    nutritionRequested: v.boolean(),
+    nutritionEquation: v.optional(v.literal("mifflin_st_jeor")),
+    estimatedBmrKcal: v.optional(v.number()),
+    estimatedTdeeKcal: v.optional(v.number()),
+    nutritionGoal: v.optional(
+      v.union(
+        v.literal("maintenance"),
+        v.literal("deficit_10"),
+        v.literal("deficit_20"),
+        v.literal("custom"),
+      ),
+    ),
+    calorieTargetKcal: v.optional(v.number()),
+    proteinTargetG: v.optional(v.number()),
+    fatTargetG: v.optional(v.number()),
+    carbohydratesTargetG: v.optional(v.number()),
+    fibreTargetG: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_member", ["memberId"]),
+
+  tarlaDietaryRules: defineTable({
+    householdId: v.id("households"),
+    memberId: v.optional(v.id("members")),
+    ruleType: v.union(
+      v.literal("vegetarian_days"),
+      v.literal("non_vegetarian_allowed_days"),
+      v.literal("ingredient_excluded_days"),
+      v.literal("ingredient_frequency_limit"),
+      v.literal("avoid_recipe_repeat"),
+    ),
+    daysOfWeek: v.optional(v.array(v.number())),
+    ingredientKey: v.optional(v.string()),
+    mealSlot: v.optional(v.string()),
+    maxOccurrences: v.optional(v.number()),
+    windowDays: v.optional(v.number()),
+    description: v.string(),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_member", ["memberId"]),
+
+  tarlaCookStates: defineTable({
+    householdId: v.id("households"),
+    memberId: v.id("members"),
+    communicationEndpointId: v.id("communicationEndpoints"),
+    usualArrivalTime: v.optional(v.string()),
+    cookingConstraints: v.optional(v.string()),
+    communicationTone: v.optional(v.string()),
+    visitFrequency: v.optional(
+      v.union(
+        v.literal("once_daily"),
+        v.literal("twice_daily"),
+        v.literal("custom"),
+      ),
+    ),
+    readiness: v.union(
+      v.literal("not_primed"),
+      v.literal("priming_generated"),
+      v.literal("primed"),
+      v.literal("ready"),
+    ),
+    primingMessage: v.optional(v.string()),
+    primingGeneratedAt: v.optional(v.number()),
+    primedAt: v.optional(v.number()),
+    readyAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_member", ["memberId"]),
+
+  tarlaCookVisits: defineTable({
+    householdId: v.id("households"),
+    cookStateId: v.id("tarlaCookStates"),
+    cookMemberId: v.id("members"),
+    label: v.string(),
+    daysOfWeek: v.array(v.number()),
+    arrivalTime: v.string(),
+    timezone: v.string(),
+    instructionLeadMinutes: v.number(),
+    mealSlots: v.array(v.string()),
+    active: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_cook_state", ["cookStateId"]),
+
+  tarlaDayPlans: defineTable({
+    householdId: v.id("households"),
+    requestedByMemberId: v.id("members"),
+    runId: v.id("agentRuns"),
+    seriesId: v.string(),
+    targetDate: v.string(),
+    status: v.union(
+      v.literal("awaiting_approval"),
+      v.literal("rejected"),
+      v.literal("approved"),
+      v.literal("scheduled"),
+      v.literal("superseded"),
+      v.literal("executing"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    version: v.number(),
+    previousDayPlanId: v.optional(v.id("tarlaDayPlans")),
+    mealSlots: v.array(v.string()),
+    totalNutrition: nutrition,
+    memberDailyNutrition: v.array(
+      v.object({
+        memberId: v.id("members"),
+        memberName: v.string(),
+        meals: v.array(
+          v.object({
+            mealSlot: v.string(),
+            nutrition,
+          }),
+        ),
+        total: nutrition,
+        targets: v.object({
+          caloriesKcal: v.optional(v.number()),
+          proteinG: v.optional(v.number()),
+          carbohydratesG: v.optional(v.number()),
+          fatG: v.optional(v.number()),
+          fibreG: v.optional(v.number()),
+        }),
+        variance: v.object({
+          caloriesKcal: v.optional(v.number()),
+          proteinG: v.optional(v.number()),
+          carbohydratesG: v.optional(v.number()),
+          fatG: v.optional(v.number()),
+          fibreG: v.optional(v.number()),
+        }),
+      }),
+    ),
+    constraintChecks: v.array(
+      v.object({
+        name: v.string(),
+        passed: v.boolean(),
+        detail: v.string(),
+      }),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    approvedAt: v.optional(v.number()),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_series", ["seriesId"]),
+
+  tarlaDayPlanMeals: defineTable({
+    dayPlanId: v.id("tarlaDayPlans"),
+    mealPlanId: v.id("tarlaMealPlans"),
+    mealSlot: v.string(),
+    locked: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_day_plan", ["dayPlanId"])
+    .index("by_meal_plan", ["mealPlanId"]),
+
+  tarlaDayPlanFeedback: defineTable({
+    householdId: v.id("households"),
+    dayPlanId: v.id("tarlaDayPlans"),
+    runId: v.id("agentRuns"),
+    memberId: v.id("members"),
+    feedbackType: v.union(
+      v.literal("approval"),
+      v.literal("correction"),
+    ),
+    rawContent: v.string(),
+    interpretation: v.optional(v.string()),
+    preferenceId: v.optional(v.id("preferences")),
+    createdAt: v.number(),
+  })
+    .index("by_day_plan", ["dayPlanId"])
+    .index("by_run", ["runId"]),
+
+  tarlaMealPlans: defineTable({
+    householdId: v.id("households"),
+    requestedByMemberId: v.id("members"),
+    runId: v.id("agentRuns"),
+    targetDate: v.string(),
+    mealSlot: v.string(),
+    contextLabel: v.optional(v.string()),
+    status: v.union(
+      v.literal("awaiting_approval"),
+      v.literal("rejected"),
+      v.literal("approved"),
+      v.literal("superseded"),
+      v.literal("executing"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    version: v.number(),
+    previousPlanId: v.optional(v.id("tarlaMealPlans")),
+    selectedTemplateId: v.string(),
+    selectedTemplateName: v.string(),
+    totalServingEquivalents: v.number(),
+    totalNutrition: nutrition,
+    perServingNutrition: nutrition,
+    memberNutrition: v.array(
+      v.object({
+        memberId: v.id("members"),
+        memberName: v.string(),
+        servingEquivalent: v.number(),
+        nutrition,
+      }),
+    ),
+    constraintChecks: v.array(
+      v.object({
+        name: v.string(),
+        passed: v.boolean(),
+        detail: v.string(),
+      }),
+    ),
+    userEscalationRequired: v.boolean(),
+    approvedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_run", ["runId"]),
+
+  tarlaMealPlanItems: defineTable({
+    planId: v.id("tarlaMealPlans"),
+    recipeId: v.string(),
+    recipeName: v.string(),
+    scale: v.number(),
+    totalNutrition: nutrition,
+    perServingNutrition: nutrition,
+    ingredients: v.array(
+      v.object({
+        ingredientKey: v.string(),
+        ingredientName: v.string(),
+        quantityG: v.number(),
+        nutrition,
+      }),
+    ),
+    memberPortions: v.array(
+      v.object({
+        memberId: v.id("members"),
+        memberName: v.string(),
+        servingEquivalent: v.number(),
+        nutrition,
+      }),
+    ),
+    createdAt: v.number(),
+  }).index("by_plan", ["planId"]),
+
+  tarlaUserFeedback: defineTable({
+    householdId: v.id("households"),
+    planId: v.id("tarlaMealPlans"),
+    runId: v.id("agentRuns"),
+    memberId: v.id("members"),
+    feedbackType: v.union(
+      v.literal("approval"),
+      v.literal("correction"),
+    ),
+    rawContent: v.string(),
+    interpretation: v.optional(v.string()),
+    preferenceId: v.optional(v.id("preferences")),
+    createdAt: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_run", ["runId"]),
+
+  tarlaExecutions: defineTable({
+    householdId: v.id("households"),
+    planId: v.optional(v.id("tarlaMealPlans")),
+    dayPlanId: v.optional(v.id("tarlaDayPlans")),
+    dayPlanSeriesId: v.optional(v.string()),
+    cookVisitId: v.optional(v.id("tarlaCookVisits")),
+    runId: v.id("agentRuns"),
+    cookMemberId: v.id("members"),
+    communicationEndpointId: v.id("communicationEndpoints"),
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("instruction_ready"),
+      v.literal("waiting"),
+      v.literal("revised_waiting"),
+      v.literal("question_received"),
+      v.literal("unresolved"),
+      v.literal("acknowledged"),
+      v.literal("no_response"),
+      v.literal("failed"),
+      v.literal("completed"),
+    ),
+    instruction: v.optional(v.string()),
+    latestInstruction: v.optional(v.string()),
+    outboundMessageId: v.optional(v.string()),
+    revisedOutboundMessageId: v.optional(v.string()),
+    sentAt: v.optional(v.number()),
+    expectedResponseBy: v.optional(v.number()),
+    responseTimeoutJobId: v.optional(v.string()),
+    scheduledFor: v.optional(v.number()),
+    occurrenceKey: v.optional(v.string()),
+    scheduledJobId: v.optional(v.string()),
+    lockedMealSlots: v.optional(v.array(v.string())),
+    latestInboundSignalId: v.optional(v.id("inboundSignals")),
+    unavailableIngredientKeys: v.array(v.string()),
+    userEscalationRequired: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_plan", ["planId"])
+    .index("by_cook", ["cookMemberId"])
+    .index("by_day_plan", ["dayPlanId"])
+    .index("by_occurrence_key", ["occurrenceKey"]),
+
+  tarlaInventoryItems: defineTable({
+    householdId: v.id("households"),
+    ingredientKey: v.string(),
+    item: v.string(),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    availability: v.union(
+      v.literal("available"),
+      v.literal("unavailable"),
+      v.literal("unknown"),
+    ),
+    source: v.union(
+      v.literal("user"),
+      v.literal("cook"),
+      v.literal("tarla"),
+    ),
+    lastConfirmedAt: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_household_and_ingredient", ["householdId", "ingredientKey"]),
+
+  shoppingNeededItems: defineTable({
+    householdId: v.id("households"),
+    tarlaExecutionId: v.optional(v.id("tarlaExecutions")),
+    ingredientKey: v.string(),
+    item: v.string(),
+    quantity: v.optional(v.number()),
+    unit: v.optional(v.string()),
+    reason: v.string(),
+    source: v.union(
+      v.literal("user"),
+      v.literal("cook_missing_ingredient"),
+      v.literal("tarla_plan"),
+    ),
+    status: v.union(
+      v.literal("needed"),
+      v.literal("acquired"),
+      v.literal("dismissed"),
+    ),
+    addedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_household_and_ingredient", ["householdId", "ingredientKey"]),
+
+  tarlaMealHistory: defineTable({
+    householdId: v.id("households"),
+    planId: v.optional(v.id("tarlaMealPlans")),
+    targetDate: v.string(),
+    mealSlot: v.string(),
+    templateId: v.string(),
+    recipeIds: v.array(v.string()),
+    ingredientKeys: v.array(v.string()),
+    active: v.optional(v.boolean()),
+    source: v.union(
+      v.literal("approved_plan"),
+      v.literal("manual"),
+    ),
+    createdAt: v.number(),
+  }).index("by_household", ["householdId"]),
 
   devTransportMessages: defineTable({
     messageId: v.string(),
     householdId: v.id("households"),
     memberId: v.id("members"),
     communicationEndpointId: v.id("communicationEndpoints"),
-    checkInId: v.id("checkIns"),
+    checkInId: v.optional(v.id("checkIns")),
     runId: v.id("agentRuns"),
-    routineId: v.id("routines"),
+    routineId: v.optional(v.id("routines")),
+    tarlaExecutionId: v.optional(v.id("tarlaExecutions")),
+    mealPlanId: v.optional(v.id("tarlaMealPlans")),
+    dayPlanId: v.optional(v.id("tarlaDayPlans")),
+    cookVisitId: v.optional(v.id("tarlaCookVisits")),
+    purpose: v.optional(v.string()),
     recipientAddress: v.string(),
     channel: v.string(),
     message: v.string(),
     sentAt: v.number(),
   })
     .index("by_message_id", ["messageId"])
-    .index("by_check_in", ["checkInId"]),
+    .index("by_check_in", ["checkInId"])
+    .index("by_tarla_execution", ["tarlaExecutionId"]),
 
   agentRuns: defineTable({
     runId: v.string(),

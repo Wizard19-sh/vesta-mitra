@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "verify:w1": "node scripts/verify-w1.mjs",
-    "verify:w2": "node scripts/verify-w2.mjs"
+    "verify:w2": "node scripts/verify-w2.mjs",
+    "verify:w3": "node scripts/verify-w3.mjs",
+    "verify:w3.1": "node scripts/verify-w3-1.mjs"
   },
   "dependencies": {
     "convex": "^1.45.0",

@@ -15,6 +15,13 @@ import type * as mitra from "../mitra.js";
 import type * as mitraInbound from "../mitraInbound.js";
 import type * as mitraRoutines from "../mitraRoutines.js";
 import type * as mitraRuntime from "../mitraRuntime.js";
+import type * as tarlaDayPlanning from "../tarlaDayPlanning.js";
+import type * as tarlaDaySupport from "../tarlaDaySupport.js";
+import type * as tarlaInbound from "../tarlaInbound.js";
+import type * as tarlaPlanning from "../tarlaPlanning.js";
+import type * as tarlaProfiles from "../tarlaProfiles.js";
+import type * as tarlaRuntime from "../tarlaRuntime.js";
+import type * as tarlaSupport from "../tarlaSupport.js";
 import type * as vesta from "../vesta.js";
 
 import type {
@@ -31,6 +38,13 @@ declare const fullApi: ApiFromModules<{
   mitraInbound: typeof mitraInbound;
   mitraRoutines: typeof mitraRoutines;
   mitraRuntime: typeof mitraRuntime;
+  tarlaDayPlanning: typeof tarlaDayPlanning;
+  tarlaDaySupport: typeof tarlaDaySupport;
+  tarlaInbound: typeof tarlaInbound;
+  tarlaPlanning: typeof tarlaPlanning;
+  tarlaProfiles: typeof tarlaProfiles;
+  tarlaRuntime: typeof tarlaRuntime;
+  tarlaSupport: typeof tarlaSupport;
   vesta: typeof vesta;
 }>;
 
