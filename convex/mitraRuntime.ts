@@ -172,7 +172,7 @@ export const triggerRoutine = internalMutation({
       5,
       "send_message",
       "Send through the provider-neutral transport contract",
-      "Development transport persisted one outbound message",
+      "Provider-neutral transport recorded one outbound message request",
     );
     await ctx.db.patch(checkInId, {
       status: "WAITING",
@@ -189,7 +189,8 @@ export const triggerRoutine = internalMutation({
     );
     await ctx.db.patch(runId, {
       status: "waiting",
-      outputSummary: "Outbound reminder sent; waiting for a normalized signal",
+      outputSummary:
+        "Outbound reminder recorded by transport; waiting for a normalized signal",
       updatedAt: Date.now(),
     });
 

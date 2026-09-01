@@ -576,7 +576,7 @@ export const getDayExecution = query({
     const execution = await ctx.db.get(args.executionId);
     if (!execution) throw new Error("Tarla day execution not found");
     await requireOwnedHousehold(ctx, execution.householdId, args.ownerKey);
-    const [dayPlan, visit, run, outboundMessages, inboundSignals] =
+    const [dayPlan, visit, run, outboundMessages, transportMessages, inboundSignals] =
       await Promise.all([
         execution.dayPlanId
           ? ctx.db.get(execution.dayPlanId)
@@ -587,6 +587,12 @@ export const getDayExecution = query({
         ctx.db.get(execution.runId),
         ctx.db
           .query("devTransportMessages")
+          .withIndex("by_tarla_execution", (q) =>
+            q.eq("tarlaExecutionId", execution._id),
+          )
+          .collect(),
+        ctx.db
+          .query("transportMessages")
           .withIndex("by_tarla_execution", (q) =>
             q.eq("tarlaExecutionId", execution._id),
           )
@@ -617,6 +623,9 @@ export const getDayExecution = query({
       steps,
       outboundMessages: outboundMessages.sort(
         (left, right) => left.sentAt - right.sentAt,
+      ),
+      transportMessages: transportMessages.sort(
+        (left, right) => left.requestedAt - right.requestedAt,
       ),
       inboundSignals: inboundSignals.sort(
         (left, right) => left.timestamp - right.timestamp,

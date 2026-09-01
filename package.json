@@ -10,13 +10,21 @@
     "verify:w1": "node scripts/verify-w1.mjs",
     "verify:w2": "node scripts/verify-w2.mjs",
     "verify:w3": "node scripts/verify-w3.mjs",
-    "verify:w3.1": "node scripts/verify-w3-1.mjs"
+    "verify:w3.1": "node scripts/verify-w3-1.mjs",
+    "verify:w4": "node scripts/verify-w4.mjs",
+    "verify:w4:meta:prepare": "node scripts/verify-w4-meta-live.mjs prepare",
+    "verify:w4:meta:retry": "node scripts/verify-w4-meta-live.mjs retry",
+    "verify:w4:meta:inspect": "node scripts/verify-w4-meta-live.mjs inspect",
+    "verify:w4:meta:status": "node scripts/verify-w4-meta-live.mjs status",
+    "verify:w4:meta:tarla:prepare": "node scripts/verify-w4-meta-tarla-live.mjs prepare",
+    "verify:w4:meta:tarla:inspect": "node scripts/verify-w4-meta-tarla-live.mjs inspect"
   },
   "dependencies": {
     "convex": "^1.45.0",
     "next": "16.3.3",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "twilio": "^6.1.0"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -220,9 +220,13 @@ export const getRoutineInstance = query({
     if (!instance || instance.ownerKey !== ownerKey) {
       throw new Error("Routine instance not found");
     }
-    const [outboundMessages, inboundSignals, run] = await Promise.all([
+    const [outboundMessages, transportMessages, inboundSignals, run] = await Promise.all([
       ctx.db
         .query("devTransportMessages")
+        .withIndex("by_check_in", (q) => q.eq("checkInId", checkInId))
+        .collect(),
+      ctx.db
+        .query("transportMessages")
         .withIndex("by_check_in", (q) => q.eq("checkInId", checkInId))
         .collect(),
       ctx.db
@@ -238,7 +242,14 @@ export const getRoutineInstance = query({
           .order("asc")
           .collect()
       : [];
-    return { instance, outboundMessages, inboundSignals, run, steps };
+    return {
+      instance,
+      outboundMessages,
+      transportMessages,
+      inboundSignals,
+      run,
+      steps,
+    };
   },
 });
 

@@ -48,6 +48,9 @@ export const ingestCookSignal = mutation({
       v.object({
         inReplyToMessageId: v.optional(v.string()),
         reactionToMessageId: v.optional(v.string()),
+        provider: v.optional(v.string()),
+        webhookReceivedAt: v.optional(v.number()),
+        webhookValidatedAt: v.optional(v.number()),
       }),
     ),
   },
@@ -178,6 +181,7 @@ export const ingestCookSignal = mutation({
       `Received normalized cook ${args.signalType} signal`,
     );
     let order = await nextStepOrder(ctx, run._id);
+    order = await addWebhookTraceIfPresent(ctx, run._id, order, args.metadata, args.signalType);
     await addCompletedStep(
       ctx,
       run._id,
@@ -426,7 +430,7 @@ export const ingestCookSignal = mutation({
         order++,
         "send_revised_instruction",
         "Send one constraint-safe revised instruction through the shared transport",
-        "Development transport persisted the revised cook instruction",
+        "Provider-neutral transport recorded the revised cook instruction request",
       );
       await addWaitingStep(
         ctx,
@@ -437,7 +441,8 @@ export const ingestCookSignal = mutation({
       );
       await ctx.db.patch(run._id, {
         status: "waiting",
-        outputSummary: "Missing ingredient resolved; revised instruction sent without user interruption",
+        outputSummary:
+          "Missing ingredient resolved; revised instruction submitted without user interruption",
         updatedAt: Date.now(),
       });
       const timeoutJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
@@ -573,6 +578,9 @@ async function handleDayExecutionSignal(
     metadata?: {
       inReplyToMessageId?: string;
       reactionToMessageId?: string;
+      provider?: string;
+      webhookReceivedAt?: number;
+      webhookValidatedAt?: number;
     };
   },
   normalized: {
@@ -627,6 +635,13 @@ async function handleDayExecutionSignal(
     `Received normalized cook ${args.signalType} signal`,
   );
   let order = await nextStepOrder(ctx, run._id);
+  order = await addWebhookTraceIfPresent(
+    ctx,
+    run._id,
+    order,
+    args.metadata,
+    args.signalType,
+  );
   await addCompletedStep(
     ctx,
     run._id,
@@ -873,7 +888,7 @@ async function handleDayExecutionSignal(
       order++,
       "send_revised_instruction",
       "Send the visit's revised instruction through the shared transport",
-      "Development transport persisted the revised full-day cook instruction",
+      "Provider-neutral transport recorded the revised full-day cook instruction request",
     );
     await addWaitingStep(
       ctx,
@@ -885,7 +900,7 @@ async function handleDayExecutionSignal(
     await ctx.db.patch(run._id, {
       status: "waiting",
       outputSummary:
-        "Missing ingredient resolved; full-day totals updated and revised instruction sent",
+        "Missing ingredient resolved; full-day totals updated and revised instruction submitted",
       updatedAt: Date.now(),
     });
     const timeoutJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
@@ -1071,6 +1086,9 @@ async function persistSignal(
     metadata?: {
       inReplyToMessageId?: string;
       reactionToMessageId?: string;
+      provider?: string;
+      webhookReceivedAt?: number;
+      webhookValidatedAt?: number;
     };
   },
   normalized: {
@@ -1101,6 +1119,54 @@ async function persistSignal(
     matched: normalized.matched,
     createdAt: Date.now(),
   });
+}
+
+async function addWebhookTraceIfPresent(
+  ctx: MutationCtx,
+  runId: Id<"agentRuns">,
+  initialOrder: number,
+  metadata:
+    | {
+        provider?: string;
+        webhookReceivedAt?: number;
+        webhookValidatedAt?: number;
+      }
+    | undefined,
+  inboundSignalType: "text" | "reaction" | "acknowledgement",
+) {
+  if (
+    !metadata?.provider ||
+    metadata.webhookReceivedAt === undefined ||
+    metadata.webhookValidatedAt === undefined
+  ) {
+    return initialOrder;
+  }
+  let order = initialOrder;
+  await addCompletedStep(
+    ctx,
+    runId,
+    order++,
+    "receive_webhook",
+    "Receive a provider webhook through the shared transport gateway",
+    `Received a ${metadata.provider} inbound event`,
+  );
+  await addCompletedStep(
+    ctx,
+    runId,
+    order++,
+    "validate_webhook",
+    "Require provider authentication before routing household data",
+    "Provider signature and account context were validated",
+  );
+  await addCompletedStep(
+    ctx,
+    runId,
+    order++,
+    "normalize_signal",
+    "Convert the provider payload to the Vesta inbound contract",
+    `Normalized ${inboundSignalType} cook signal`,
+  );
+  return order;
 }
 
 function requiredText(value: string, label: string, maxLength: number) {

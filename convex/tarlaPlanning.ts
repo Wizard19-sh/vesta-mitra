@@ -370,7 +370,7 @@ export const submitUserFeedback = mutation({
       order++,
       "send_cook_instruction",
       "Send the approved instruction through the provider-neutral transport",
-      "Development transport persisted one cook instruction",
+      "Provider-neutral transport recorded one cook instruction request",
     );
     const responseWindowMs = validResponseWindow(args.responseWindowMs);
     const expectedResponseBy = sent.timestamp + responseWindowMs;
@@ -404,7 +404,8 @@ export const submitUserFeedback = mutation({
     );
     await ctx.db.patch(run._id, {
       status: "waiting",
-      outputSummary: "Approved meal instruction sent; waiting for cook response",
+      outputSummary:
+        "Approved meal instruction recorded by transport; waiting for cook response",
       updatedAt: Date.now(),
     });
     const timeoutJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
@@ -458,7 +459,7 @@ export const getExecution = query({
     const execution = await ctx.db.get(args.executionId);
     if (!execution) throw new Error("Tarla execution not found");
     await requireOwnedHousehold(ctx, execution.householdId, args.ownerKey);
-    const [plan, items, outboundMessages, inboundSignals, run] = await Promise.all([
+    const [plan, items, outboundMessages, transportMessages, inboundSignals, run] = await Promise.all([
       execution.planId ? ctx.db.get(execution.planId) : Promise.resolve(null),
       execution.planId
         ? ctx.db
@@ -469,6 +470,12 @@ export const getExecution = query({
       ctx.db
         .query("devTransportMessages")
         .withIndex("by_tarla_execution", (q) => q.eq("tarlaExecutionId", execution._id))
+        .collect(),
+      ctx.db
+        .query("transportMessages")
+        .withIndex("by_tarla_execution", (q) =>
+          q.eq("tarlaExecutionId", execution._id),
+        )
         .collect(),
       ctx.db
         .query("inboundSignals")
@@ -483,7 +490,16 @@ export const getExecution = query({
           .order("asc")
           .collect()
       : [];
-    return { execution, plan, items, outboundMessages, inboundSignals, run, steps };
+    return {
+      execution,
+      plan,
+      items,
+      outboundMessages,
+      transportMessages,
+      inboundSignals,
+      run,
+      steps,
+    };
   },
 });
 

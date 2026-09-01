@@ -237,6 +237,7 @@ export const addCommunicationEndpoint = mutation({
       v.object({
         provider: v.optional(v.string()),
         externalId: v.optional(v.string()),
+        ready: v.optional(v.boolean()),
       }),
     ),
     active: v.optional(v.boolean()),
@@ -271,6 +272,7 @@ export const addCommunicationEndpoint = mutation({
               "Provider external ID",
               300,
             ),
+            ready: args.providerMetadata.ready,
           }
         : undefined,
       active: args.active ?? true,
@@ -279,6 +281,43 @@ export const addCommunicationEndpoint = mutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+export const configureCommunicationProvider = mutation({
+  args: {
+    ownerKey: v.string(),
+    endpointId: v.id("communicationEndpoints"),
+    provider: v.string(),
+    ready: v.boolean(),
+    externalId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const endpoint = await ctx.db.get(args.endpointId);
+    if (!endpoint) throw new Error("Communication endpoint not found");
+    await ownedHousehold(ctx, endpoint.householdId, args.ownerKey);
+    if (
+      args.ready &&
+      (!endpoint.active || endpoint.consentStatus !== "granted")
+    ) {
+      throw new Error(
+        "A real messaging provider can be ready only on an active consented endpoint",
+      );
+    }
+    await ctx.db.patch(endpoint._id, {
+      providerMetadata: {
+        provider: requiredText(args.provider, "Provider name", 100)
+          .toLocaleLowerCase(),
+        externalId: optionalText(
+          args.externalId,
+          "Provider external ID",
+          300,
+        ),
+        ready: args.ready,
+      },
+      updatedAt: Date.now(),
+    });
+    return endpoint._id;
   },
 });
 

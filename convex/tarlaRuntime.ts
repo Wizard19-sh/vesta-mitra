@@ -129,8 +129,8 @@ export const triggerCookVisit = internalMutation({
       run._id,
       4,
       "send_cook_instruction",
-      "Send through the provider-neutral development transport",
-      "Development transport persisted one scheduled cook instruction",
+      "Send through the provider-neutral transport",
+      "Provider-neutral transport recorded one scheduled cook instruction request",
     );
     const expectedResponseBy = sent.timestamp + 4 * 60 * 60 * 1_000;
     await ctx.db.patch(execution._id, {

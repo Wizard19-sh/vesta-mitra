@@ -24,6 +24,9 @@ export const ingestSignal = mutation({
       v.object({
         inReplyToMessageId: v.optional(v.string()),
         reactionToMessageId: v.optional(v.string()),
+        provider: v.optional(v.string()),
+        webhookReceivedAt: v.optional(v.number()),
+        webhookValidatedAt: v.optional(v.number()),
       }),
     ),
   },
@@ -139,6 +142,36 @@ export const ingestSignal = mutation({
       `Received normalized ${args.signalType} signal`,
     );
     let order = await nextStepOrder(ctx, run._id);
+    if (
+      args.metadata?.provider &&
+      args.metadata.webhookReceivedAt !== undefined &&
+      args.metadata.webhookValidatedAt !== undefined
+    ) {
+      await addCompletedStep(
+        ctx,
+        run._id,
+        order++,
+        "receive_webhook",
+        "Receive a provider webhook through the shared transport gateway",
+        `Received a ${args.metadata.provider} inbound event`,
+      );
+      await addCompletedStep(
+        ctx,
+        run._id,
+        order++,
+        "validate_webhook",
+        "Require provider authentication before routing household data",
+        "Provider signature and account context were validated",
+      );
+      await addCompletedStep(
+        ctx,
+        run._id,
+        order++,
+        "normalize_signal",
+        "Convert the provider payload to the Vesta inbound contract",
+        `Normalized ${args.signalType} signal ${messageId}`,
+      );
+    }
     await addCompletedStep(
       ctx,
       run._id,
@@ -246,6 +279,9 @@ async function persistSignal(
     metadata?: {
       inReplyToMessageId?: string;
       reactionToMessageId?: string;
+      provider?: string;
+      webhookReceivedAt?: number;
+      webhookValidatedAt?: number;
     };
   },
   normalized: {

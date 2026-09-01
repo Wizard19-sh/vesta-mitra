@@ -9,8 +9,10 @@
  */
 
 import type * as agentRuns from "../agentRuns.js";
+import type * as http from "../http.js";
 import type * as interpreter from "../interpreter.js";
 import type * as messageTransport from "../messageTransport.js";
+import type * as metaWhatsAppTransport from "../metaWhatsAppTransport.js";
 import type * as mitra from "../mitra.js";
 import type * as mitraInbound from "../mitraInbound.js";
 import type * as mitraRoutines from "../mitraRoutines.js";
@@ -22,6 +24,9 @@ import type * as tarlaPlanning from "../tarlaPlanning.js";
 import type * as tarlaProfiles from "../tarlaProfiles.js";
 import type * as tarlaRuntime from "../tarlaRuntime.js";
 import type * as tarlaSupport from "../tarlaSupport.js";
+import type * as transportInbound from "../transportInbound.js";
+import type * as transportMessages from "../transportMessages.js";
+import type * as twilioTransport from "../twilioTransport.js";
 import type * as vesta from "../vesta.js";
 
 import type {
@@ -32,8 +37,10 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agentRuns: typeof agentRuns;
+  http: typeof http;
   interpreter: typeof interpreter;
   messageTransport: typeof messageTransport;
+  metaWhatsAppTransport: typeof metaWhatsAppTransport;
   mitra: typeof mitra;
   mitraInbound: typeof mitraInbound;
   mitraRoutines: typeof mitraRoutines;
@@ -45,6 +52,9 @@ declare const fullApi: ApiFromModules<{
   tarlaProfiles: typeof tarlaProfiles;
   tarlaRuntime: typeof tarlaRuntime;
   tarlaSupport: typeof tarlaSupport;
+  transportInbound: typeof transportInbound;
+  transportMessages: typeof transportMessages;
+  twilioTransport: typeof twilioTransport;
   vesta: typeof vesta;
 }>;
 

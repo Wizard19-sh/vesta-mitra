@@ -66,6 +66,7 @@ export default defineSchema({
       v.object({
         provider: v.optional(v.string()),
         externalId: v.optional(v.string()),
+        ready: v.optional(v.boolean()),
       }),
     ),
     active: v.boolean(),
@@ -126,6 +127,9 @@ export default defineSchema({
       v.object({
         inReplyToMessageId: v.optional(v.string()),
         reactionToMessageId: v.optional(v.string()),
+        provider: v.optional(v.string()),
+        webhookReceivedAt: v.optional(v.number()),
+        webhookValidatedAt: v.optional(v.number()),
       }),
     ),
     matched: v.boolean(),
@@ -574,6 +578,51 @@ export default defineSchema({
     sentAt: v.number(),
   })
     .index("by_message_id", ["messageId"])
+    .index("by_check_in", ["checkInId"])
+    .index("by_tarla_execution", ["tarlaExecutionId"]),
+
+  transportMessages: defineTable({
+    messageId: v.string(),
+    idempotencyKey: v.string(),
+    provider: v.string(),
+    providerMessageId: v.optional(v.string()),
+    providerStatus: v.optional(v.string()),
+    status: v.union(
+      v.literal("requested"),
+      v.literal("accepted"),
+      v.literal("sent"),
+      v.literal("delivered"),
+      v.literal("read"),
+      v.literal("failed"),
+    ),
+    householdId: v.id("households"),
+    memberId: v.id("members"),
+    communicationEndpointId: v.id("communicationEndpoints"),
+    checkInId: v.optional(v.id("checkIns")),
+    runId: v.id("agentRuns"),
+    routineId: v.optional(v.id("routines")),
+    tarlaExecutionId: v.optional(v.id("tarlaExecutions")),
+    mealPlanId: v.optional(v.id("tarlaMealPlans")),
+    dayPlanId: v.optional(v.id("tarlaDayPlans")),
+    cookVisitId: v.optional(v.id("tarlaCookVisits")),
+    purpose: v.optional(v.string()),
+    channel: v.string(),
+    message: v.string(),
+    requestedAt: v.number(),
+    providerAcceptedAt: v.optional(v.number()),
+    sentAt: v.optional(v.number()),
+    deliveredAt: v.optional(v.number()),
+    readAt: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    failureCode: v.optional(v.string()),
+    failureSummary: v.optional(v.string()),
+    scheduledJobId: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_message_id", ["messageId"])
+    .index("by_idempotency_key", ["idempotencyKey"])
+    .index("by_provider_message_id", ["providerMessageId"])
+    .index("by_endpoint", ["communicationEndpointId"])
     .index("by_check_in", ["checkInId"])
     .index("by_tarla_execution", ["tarlaExecutionId"]),
 
