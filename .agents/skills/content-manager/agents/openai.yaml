@@ -1,0 +1,4 @@
+interface:
+  display_name: "Content Manager"
+  short_description: "Owns truthful, safe Aevia product content"
+  default_prompt: "Use $content-manager to review or draft Aevia product content and provide an implementation-ready handoff."
