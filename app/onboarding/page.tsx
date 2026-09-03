@@ -10,6 +10,7 @@ import styles from "./onboarding.module.css";
 
 type Step = "basics" | "members" | "roles" | "review" | "complete";
 type DietaryType = "vegetarian" | "eggetarian" | "non_vegetarian";
+type ActivityLevel = "sedentary" | "lightly_active" | "moderately_active" | "very_active" | "extra_active";
 
 type MemberDraft = {
   clientKey: string;
@@ -19,8 +20,11 @@ type MemberDraft = {
   dietaryType: DietaryType;
   favouriteFoods: string;
   allergies: string;
-  calorieTargetKcal: string;
-  proteinTargetG: string;
+  age: string;
+  sex: "male" | "female";
+  heightCm: string;
+  weightKg: string;
+  activityLevel: ActivityLevel;
 };
 
 type CreatedIds = { householdId: string; memberIds: string[]; dayPlanId: string };
@@ -42,6 +46,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
   const [primaryKey, setPrimaryKey] = useState(members[0].clientKey);
   const [cookKey, setCookKey] = useState(members[0].clientKey);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedIds | null>(null);
 
@@ -49,6 +54,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
   const addMember = useMutation(api.vesta.addMember);
   const upsertMemberProfile = useMutation(api.tarlaProfiles.upsertMemberProfile);
   const setNutritionTargets = useMutation(api.tarlaProfiles.setNutritionTargets);
+  const estimateMemberNutrition = useMutation(api.tarlaProfiles.estimateMemberNutrition);
   const createFullDayPlan = useMutation(api.tarlaDayPlanning.createFullDayPlan);
 
   function nextBasics(event: FormEvent<HTMLFormElement>) {
@@ -60,8 +66,16 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
 
   function nextMembers(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!members.length || members.some((member) => !member.name.trim() || !member.relationship.trim())) return setError("Add a name and relationship for every household member.");
-    if (members.some((member) => !validGoal(member.calorieTargetKcal) || !validGoal(member.proteinTargetG))) return setError("Enter positive calorie and protein goals for every member.");
+    const nextErrors: Record<string, string> = {};
+    for (const member of members) {
+      if (!member.name.trim()) nextErrors[`${member.clientKey}:name`] = "Name is required.";
+      if (!member.relationship.trim()) nextErrors[`${member.clientKey}:relationship`] = "Relationship is required.";
+      if (!validGoal(member.age)) nextErrors[`${member.clientKey}:age`] = "Enter an age in years.";
+      if (!validGoal(member.heightCm)) nextErrors[`${member.clientKey}:heightCm`] = "Enter height in centimetres.";
+      if (!validGoal(member.weightKg)) nextErrors[`${member.clientKey}:weightKg`] = "Enter weight in kilograms.";
+    }
+    setFieldErrors(nextErrors);
+    if (Object.keys(nextErrors).length) return setError("Complete the highlighted fields before continuing.");
     setError("");
     setStep("roles");
   }
@@ -93,6 +107,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
           ownerKey, householdId, name: member.name.trim(), relationship: member.relationship.trim(),
           role: memberRole(member, primaryKey, cookKey), lifeStage: member.lifeStage,
           preferredSalutation: member.name.trim(), memberKind: "household", languagePreference: "English",
+          age: Number(member.age), sex: member.sex, heightCm: Number(member.heightCm), weightKg: Number(member.weightKg),
         });
         await upsertMemberProfile({
           ownerKey, householdId, memberId, dietaryType: member.dietaryType,
@@ -100,10 +115,8 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
           dislikedFoods: [], avoidedFoods: [], limitedFoods: [], mealsAtHome: allMeals,
           servingEquivalent: member.lifeStage === "child" ? 0.6 : 1, includedInPlanning: true,
         });
-        await setNutritionTargets({
-          ownerKey, householdId, memberId, calorieTargetKcal: Number(member.calorieTargetKcal),
-          proteinTargetG: Number(member.proteinTargetG),
-        });
+        await estimateMemberNutrition({ ownerKey, householdId, memberId, activityLevel: member.activityLevel, goal: "maintenance" });
+        await setNutritionTargets({ ownerKey, householdId, memberId, proteinTargetG: computedTargets(member).proteinTargetG });
         return memberId;
       }));
       const primaryIndex = members.findIndex((member) => member.clientKey === primaryKey);
@@ -141,8 +154,8 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
           <div className={styles.memberList}>{members.map((member, index) => <section className={styles.memberCard} key={member.clientKey}>
             <div className={styles.groupTitle}><span>Member {index + 1}</span>{members.length > 1 && <button type="button" onClick={() => removePerson(member.clientKey)}>Remove</button>}</div>
             <div className={styles.twoColumns}>
-              <Field label="Name"><input required value={member.name} onChange={(event) => updatePerson(member.clientKey, { name: event.target.value })} /></Field>
-              <Field label="Relationship"><input required value={member.relationship} onChange={(event) => updatePerson(member.clientKey, { relationship: event.target.value })} placeholder="Self, partner, child" /></Field>
+              <Field label="Name" error={fieldErrors[`${member.clientKey}:name`]}><input value={member.name} onChange={(event) => updatePerson(member.clientKey, { name: event.target.value })} /></Field>
+              <Field label="Relationship" error={fieldErrors[`${member.clientKey}:relationship`]}><input value={member.relationship} onChange={(event) => updatePerson(member.clientKey, { relationship: event.target.value })} placeholder="Self, partner, child" /></Field>
             </div>
             <div className={styles.twoColumns}>
               <Field label="Life stage"><select value={member.lifeStage} onChange={(event) => updatePerson(member.clientKey, { lifeStage: event.target.value as MemberDraft["lifeStage"] })}><option value="adult">Adult</option><option value="child">Child</option><option value="senior">Senior</option></select></Field>
@@ -150,9 +163,14 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
             </div>
             <Field label="Favourite foods"><input value={member.favouriteFoods} onChange={(event) => updatePerson(member.clientKey, { favouriteFoods: event.target.value })} placeholder="For example, dal, bhindi, dosa" /></Field>
             <Field label="Allergies"><input value={member.allergies} onChange={(event) => updatePerson(member.clientKey, { allergies: event.target.value })} placeholder="Leave blank if there are none" /></Field>
+            <div className={styles.threeColumns}>
+              <Field label="Age in years" error={fieldErrors[`${member.clientKey}:age`]}><input min="1" type="number" value={member.age} onChange={(event) => updatePerson(member.clientKey, { age: event.target.value })} /></Field>
+              <Field label="Height in cm" error={fieldErrors[`${member.clientKey}:heightCm`]}><input min="1" type="number" value={member.heightCm} onChange={(event) => updatePerson(member.clientKey, { heightCm: event.target.value })} /></Field>
+              <Field label="Weight in kg" error={fieldErrors[`${member.clientKey}:weightKg`]}><input min="1" type="number" value={member.weightKg} onChange={(event) => updatePerson(member.clientKey, { weightKg: event.target.value })} /></Field>
+            </div>
             <div className={styles.twoColumns}>
-              <Field label="Daily calories"><input required min="1" type="number" value={member.calorieTargetKcal} onChange={(event) => updatePerson(member.clientKey, { calorieTargetKcal: event.target.value })} /></Field>
-              <Field label="Daily protein (g)"><input required min="1" type="number" value={member.proteinTargetG} onChange={(event) => updatePerson(member.clientKey, { proteinTargetG: event.target.value })} /></Field>
+              <Field label="Sex for the calorie estimate"><select value={member.sex} onChange={(event) => updatePerson(member.clientKey, { sex: event.target.value as MemberDraft["sex"] })}><option value="female">Female</option><option value="male">Male</option></select></Field>
+              <Field label="Activity level"><select value={member.activityLevel} onChange={(event) => updatePerson(member.clientKey, { activityLevel: event.target.value as ActivityLevel })}><option value="sedentary">Mostly sitting</option><option value="lightly_active">Lightly active</option><option value="moderately_active">Moderately active</option><option value="very_active">Very active</option><option value="extra_active">Extra active</option></select></Field>
             </div>
           </section>)}</div>
           <button className={styles.addButton} type="button" onClick={addPerson}>+ Add another person</button>
@@ -174,7 +192,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
         <div className={styles.reviewGrid}>
           <section className={styles.reviewSection}><h2>{householdName}</h2><p>{timezone}</p></section>
           <section className={styles.reviewSection}><h2>Roles</h2><p>Primary user: {memberName(members, primaryKey)}</p><p>Cooking person: {memberName(members, cookKey)}</p></section>
-          <section className={styles.reviewSection}><h2>Members</h2><ul>{members.map((member) => <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {member.dietaryType.replace("_", " ")}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Goals: {member.calorieTargetKcal} kcal, {member.proteinTargetG} g protein</small></li>)}</ul></section>
+          <section className={styles.reviewSection}><h2>Members</h2><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {member.dietaryType.replace("_", " ")}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Derived goals: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />Calories use Mifflin–St Jeor; protein uses age-group weight guidance.</small></li>; })}</ul></section>
         </div>
         <FormError error={error} />
         <Actions back={() => setStep("roles")} busy={busy}><button className={styles.primaryButton} type="button" disabled={busy} onClick={confirm}>{busy ? "Creating your first plan…" : "Confirm and create my first day plan"}</button></Actions>
@@ -188,16 +206,24 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
 }
 
 function newMember(): MemberDraft {
-  return { clientKey: crypto.randomUUID(), name: "", relationship: "", lifeStage: "adult", dietaryType: "vegetarian", favouriteFoods: "", allergies: "", calorieTargetKcal: "2000", proteinTargetG: "75" };
+  return { clientKey: crypto.randomUUID(), name: "", relationship: "", lifeStage: "adult", dietaryType: "vegetarian", favouriteFoods: "", allergies: "", age: "", sex: "female", heightCm: "", weightKg: "", activityLevel: "moderately_active" };
 }
 
 function toList(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
 function validGoal(value: string) { return Number.isFinite(Number(value)) && Number(value) > 0; }
+function computedTargets(member: MemberDraft) {
+  const multiplier: Record<ActivityLevel, number> = { sedentary: 1.2, lightly_active: 1.375, moderately_active: 1.55, very_active: 1.725, extra_active: 1.9 };
+  const bmr = 10 * Number(member.weightKg) + 6.25 * Number(member.heightCm) - 5 * Number(member.age) + (member.sex === "male" ? 5 : -161);
+  return {
+    calorieTargetKcal: Math.round(bmr * multiplier[member.activityLevel]),
+    proteinTargetG: Math.round(Number(member.weightKg) * (member.lifeStage === "child" ? 0.95 : 0.8)),
+  };
+}
 function memberRole(member: MemberDraft, primaryKey: string, cookKey: string) { const parts = [member.clientKey === primaryKey ? "primary user" : "household member"]; if (member.clientKey === cookKey) parts.push("cook"); return parts.join(" and "); }
 function memberName(members: MemberDraft[], clientKey: string) { return members.find((member) => member.clientKey === clientKey)?.name || "Not chosen"; }
 function progress(step: Step) { return ({ basics: 20, members: 40, roles: 60, review: 80, complete: 100 } as const)[step]; }
 function stepLabel(step: Step) { return ({ basics: "Step 1 of 4", members: "Step 2 of 4", roles: "Step 3 of 4", review: "Step 4 of 4", complete: "Complete" } as const)[step]; }
 function Panel({ eyebrow, title, supporting, children }: { eyebrow: string; title: string; supporting: string; children: React.ReactNode }) { return <><p className={styles.eyebrow}>{eyebrow}</p><h1>{title}</h1><p className={styles.supporting}>{supporting}</p>{children}</>; }
-function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className={styles.field}><span>{label}</span>{children}</label>; }
+function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) { return <label className={styles.field}><span>{label}</span>{children}{error && <small className={styles.error}>{error}</small>}</label>; }
 function Actions({ back, busy, children }: { back: () => void; busy: boolean; children: React.ReactNode }) { return <div className={styles.actions}><button className={styles.backButton} type="button" onClick={back} disabled={busy}>Back</button>{children}</div>; }
 function FormError({ error }: { error: string }) { return error ? <p className={styles.error}>{error}</p> : null; }
