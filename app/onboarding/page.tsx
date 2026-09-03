@@ -11,6 +11,7 @@ import styles from "./onboarding.module.css";
 type Step = "basics" | "members" | "roles" | "review" | "complete";
 type DietaryType = "vegetarian" | "eggetarian" | "non_vegetarian";
 type ActivityLevel = "sedentary" | "lightly_active" | "moderately_active" | "very_active" | "extra_active";
+type DietGoal = "maintain" | "moderate_deficit" | "stronger_deficit" | "high_protein";
 
 type MemberDraft = {
   clientKey: string;
@@ -25,6 +26,7 @@ type MemberDraft = {
   heightCm: string;
   weightKg: string;
   activityLevel: ActivityLevel;
+  dietGoal: DietGoal;
 };
 
 type CreatedIds = { householdId: string; memberIds: string[]; dayPlanId: string };
@@ -116,7 +118,8 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
           servingEquivalent: member.lifeStage === "child" ? 0.6 : 1, includedInPlanning: true,
         });
         await estimateMemberNutrition({ ownerKey, householdId, memberId, activityLevel: member.activityLevel, goal: "maintenance" });
-        await setNutritionTargets({ ownerKey, householdId, memberId, proteinTargetG: computedTargets(member).proteinTargetG });
+        const targets = computedTargets(member);
+        await setNutritionTargets({ ownerKey, householdId, memberId, calorieTargetKcal: targets.calorieTargetKcal, proteinTargetG: targets.proteinTargetG, planningGoal: member.dietGoal });
         return memberId;
       }));
       const primaryIndex = members.findIndex((member) => member.clientKey === primaryKey);
@@ -157,6 +160,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
               <Field label="Name" error={fieldErrors[`${member.clientKey}:name`]}><input value={member.name} onChange={(event) => updatePerson(member.clientKey, { name: event.target.value })} /></Field>
               <Field label="Relationship" error={fieldErrors[`${member.clientKey}:relationship`]}><input value={member.relationship} onChange={(event) => updatePerson(member.clientKey, { relationship: event.target.value })} placeholder="Self, partner, child" /></Field>
             </div>
+            <Field label="Diet goal"><select value={member.dietGoal} onChange={(event) => updatePerson(member.clientKey, { dietGoal: event.target.value as DietGoal })}><option value="maintain">maintain</option><option value="moderate_deficit">moderate_deficit</option><option value="stronger_deficit">stronger_deficit</option><option value="high_protein">high_protein</option></select></Field>
             <div className={styles.twoColumns}>
               <Field label="Life stage"><select value={member.lifeStage} onChange={(event) => updatePerson(member.clientKey, { lifeStage: event.target.value as MemberDraft["lifeStage"] })}><option value="adult">Adult</option><option value="child">Child</option><option value="senior">Senior</option></select></Field>
               <Field label="Diet"><select value={member.dietaryType} onChange={(event) => updatePerson(member.clientKey, { dietaryType: event.target.value as DietaryType })}><option value="vegetarian">Vegetarian</option><option value="eggetarian">Eggetarian</option><option value="non_vegetarian">Non-vegetarian</option></select></Field>
@@ -192,7 +196,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
         <div className={styles.reviewGrid}>
           <section className={styles.reviewSection}><h2>{householdName}</h2><p>{timezone}</p></section>
           <section className={styles.reviewSection}><h2>Roles</h2><p>Primary user: {memberName(members, primaryKey)}</p><p>Cooking person: {memberName(members, cookKey)}</p></section>
-          <section className={styles.reviewSection}><h2>Members</h2><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {member.dietaryType.replace("_", " ")}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Derived goals: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />Calories use Mifflin–St Jeor; protein uses age-group weight guidance.</small></li>; })}</ul></section>
+          <section className={styles.reviewSection}><h2>Members</h2><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {member.dietaryType.replace("_", " ")}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Diet goal: {member.dietGoal}<br />Derived goals: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />Calories use Mifflin–St Jeor; protein uses age-group weight guidance.</small></li>; })}</ul></section>
         </div>
         <FormError error={error} />
         <Actions back={() => setStep("roles")} busy={busy}><button className={styles.primaryButton} type="button" disabled={busy} onClick={confirm}>{busy ? "Creating your first plan…" : "Confirm and create my first day plan"}</button></Actions>
@@ -206,7 +210,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
 }
 
 function newMember(): MemberDraft {
-  return { clientKey: crypto.randomUUID(), name: "", relationship: "", lifeStage: "adult", dietaryType: "vegetarian", favouriteFoods: "", allergies: "", age: "", sex: "female", heightCm: "", weightKg: "", activityLevel: "moderately_active" };
+  return { clientKey: crypto.randomUUID(), name: "", relationship: "", lifeStage: "adult", dietaryType: "vegetarian", favouriteFoods: "", allergies: "", age: "", sex: "female", heightCm: "", weightKg: "", activityLevel: "moderately_active", dietGoal: "maintain" };
 }
 
 function toList(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
@@ -214,10 +218,8 @@ function validGoal(value: string) { return Number.isFinite(Number(value)) && Num
 function computedTargets(member: MemberDraft) {
   const multiplier: Record<ActivityLevel, number> = { sedentary: 1.2, lightly_active: 1.375, moderately_active: 1.55, very_active: 1.725, extra_active: 1.9 };
   const bmr = 10 * Number(member.weightKg) + 6.25 * Number(member.heightCm) - 5 * Number(member.age) + (member.sex === "male" ? 5 : -161);
-  return {
-    calorieTargetKcal: Math.round(bmr * multiplier[member.activityLevel]),
-    proteinTargetG: Math.round(Number(member.weightKg) * (member.lifeStage === "child" ? 0.95 : 0.8)),
-  };
+  const calorieMultiplier = member.dietGoal === "moderate_deficit" ? 0.9 : member.dietGoal === "stronger_deficit" ? 0.8 : 1;
+  return { calorieTargetKcal: Math.round(bmr * multiplier[member.activityLevel] * calorieMultiplier), proteinTargetG: Math.round(Number(member.weightKg) * (member.dietGoal === "high_protein" ? 1.6 : member.lifeStage === "child" ? 0.95 : 0.8)) };
 }
 function memberRole(member: MemberDraft, primaryKey: string, cookKey: string) { const parts = [member.clientKey === primaryKey ? "primary user" : "household member"]; if (member.clientKey === cookKey) parts.push("cook"); return parts.join(" and "); }
 function memberName(members: MemberDraft[], clientKey: string) { return members.find((member) => member.clientKey === clientKey)?.name || "Not chosen"; }

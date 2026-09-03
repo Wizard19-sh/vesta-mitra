@@ -31,6 +31,15 @@ const nutritionGoal = v.union(
   v.literal("custom"),
 );
 
+const planningGoal = v.union(
+  v.literal("balanced"),
+  v.literal("maintain"),
+  v.literal("moderate_deficit"),
+  v.literal("stronger_deficit"),
+  v.literal("high_protein"),
+  v.literal("custom"),
+);
+
 const ruleType = v.union(
   v.literal("vegetarian_days"),
   v.literal("non_vegetarian_allowed_days"),
@@ -217,6 +226,7 @@ export const setNutritionTargets = mutation({
     fatTargetG: v.optional(v.number()),
     carbohydratesTargetG: v.optional(v.number()),
     fibreTargetG: v.optional(v.number()),
+    planningGoal: v.optional(planningGoal),
   },
   handler: async (ctx, args) => {
     await requireHousehold(ctx, args.householdId, args.ownerKey);
@@ -248,6 +258,7 @@ export const setNutritionTargets = mutation({
         ? {}
         : { carbohydratesTargetG: args.carbohydratesTargetG }),
       ...(args.fibreTargetG === undefined ? {} : { fibreTargetG: args.fibreTargetG }),
+      ...(args.planningGoal === undefined ? {} : { planningGoal: args.planningGoal }),
       updatedAt: Date.now(),
     });
     return profile._id;
