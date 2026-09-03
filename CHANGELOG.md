@@ -107,6 +107,38 @@ Development note: `npx convex dev --once` synchronized the additive M1 schema an
 
 Known M1 boundary: the setup records Mitra’s `both` coordination path and multiple cooking people, but full multi-recipient follow-up and multi-cook execution remain later execution work. Generic free-text day rules are saved as context; arbitrary rule interpretation is not claimed.
 
+### M2 — Real household execution, non-live gate
+
+Implemented and verified with synthetic Convex development records on 2026-09-03:
+
+- made Mitra's saved direct, caretaker, and both communication paths executable without duplicating household members or sending every ordinary reminder to two people
+- preserved intended recipient, recipient role, selection reason, raw inbound reply, interpretation, honest outcome, acknowledgement, and useful primary-user summary as separate task facts
+- added an explicit higher-risk approval path for medicine-reminder stop requests; the routine remains unchanged until the authorised primary user approves it
+- separated requested, provider-accepted, delivered, read, and failed transport lifecycle evidence without treating acceptance as delivery
+- selected Tarla's cooking person from the matching visit, meal responsibility, and schedule rather than the first saved cook
+- generated cooking-person instructions from cumulative household measures and the latest current plan version
+- completed the bounded missing-ingredient loop with constraint checks, plan/version update, recalculated household quantities, shopping-needed state, revised instruction, and no primary-user interruption for a supported safe substitution
+- treated expired context as inactive and kept unsupported free-text food rules visible for review instead of claiming they were automatically enforced
+- added linked execution exceptions, evidence records, step metadata, and execution analytics for successful tasks and real primary-user interventions
+- added the smallest consumer approval, handled-outcome, and shopping-needed states, plus a richer household-scoped run inspection view for M2 verification
+- completed Content Manager review for new Mitra, caretaker, cooking-person, approval, outcome, and shopping wording
+
+Verified before any real send:
+
+- `npm run verify:m2`: 39/39
+- `npm run verify:m2:browser`: 1/1 with synthetic records, including desktop and 390px inspection
+- `npm run verify:m1`: 31/31
+- `npm run verify:m1:browser`: 2/2
+- `npm run verify:m5:route`: 3/3
+- `npm run verify:m0`: 15/15
+- `npm run verify:m0:browser`: 3/3
+- `npm run verify:m5`: 17/17
+- W1, W2, W3, W3.1, and W4 non-live regressions: pass
+
+Development note: `npx convex dev --once` synchronized the additive M2 schema/functions and reviewed message templates to Convex development `grand-goshawk-952`. Production was not targeted. No real WhatsApp message, web deployment, Git push, or production Convex deployment occurred.
+
+Live gate: the next action is one consented Mitra real-surface test and one consented Tarla real-surface test. Both require explicit owner approval before any command that can send a message. M2 is not checkpointed or called fully accepted until that gate is completed or explicitly waived.
+
 ### W1 — shared infrastructure
 
 Included in local checkpoint:

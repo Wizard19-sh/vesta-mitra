@@ -9,6 +9,8 @@
  */
 
 import type * as agentRuns from "../agentRuns.js";
+import type * as executionExceptions from "../executionExceptions.js";
+import type * as executionSupport from "../executionSupport.js";
 import type * as http from "../http.js";
 import type * as interpreter from "../interpreter.js";
 import type * as m1Setup from "../m1Setup.js";
@@ -40,6 +42,8 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agentRuns: typeof agentRuns;
+  executionExceptions: typeof executionExceptions;
+  executionSupport: typeof executionSupport;
   http: typeof http;
   interpreter: typeof interpreter;
   m1Setup: typeof m1Setup;

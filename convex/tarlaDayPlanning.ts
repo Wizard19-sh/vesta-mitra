@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import { planFullDay } from "../lib/tarlaDayPlanner";
 import { interpretUserCorrection } from "../lib/tarlaPlanner";
 import {
+  allocateMealsToCookVisits,
+  cookRecipientClass,
+} from "../lib/m2Execution";
+import {
   cookVisitTiming,
   dayOfWeekForDate,
 } from "../lib/tarlaVisitSchedule";
@@ -333,7 +337,7 @@ export const approveDayPlan = mutation({
     ownerKey: v.string(),
     dayPlanId: v.id("tarlaDayPlans"),
     memberId: v.id("members"),
-    cookStateId: v.id("tarlaCookStates"),
+    cookStateId: v.optional(v.id("tarlaCookStates")),
     rawContent: v.string(),
   },
   handler: async (ctx, args) => {
@@ -341,21 +345,33 @@ export const approveDayPlan = mutation({
     if (dayPlan.status !== "awaiting_approval") {
       throw new Error("Only a full-day plan awaiting approval can be approved");
     }
-    const [member, cookState, run, dayMeals] = await Promise.all([
+    const [member, run, dayMeals, cookStates, visits] = await Promise.all([
       ctx.db.get(args.memberId),
-      ctx.db.get(args.cookStateId),
       ctx.db.get(dayPlan.runId),
       loadDayMeals(ctx, dayPlan._id),
+      ctx.db
+        .query("tarlaCookStates")
+        .withIndex("by_household", (q) => q.eq("householdId", dayPlan.householdId))
+        .collect(),
+      ctx.db
+        .query("tarlaCookVisits")
+        .withIndex("by_household", (q) => q.eq("householdId", dayPlan.householdId))
+        .collect(),
     ]);
     if (!member || member.householdId !== dayPlan.householdId) {
       throw new Error("Approving member was not found in this household");
     }
+    const readyCookStates = cookStates.filter(
+      (state) => state.active !== false && state.readiness === "ready",
+    );
+    if (readyCookStates.length === 0) {
+      throw new Error("At least one cooking person must be ready before scheduling instructions");
+    }
     if (
-      !cookState ||
-      cookState.householdId !== dayPlan.householdId ||
-      cookState.readiness !== "ready"
+      args.cookStateId &&
+      !readyCookStates.some((state) => state._id === args.cookStateId)
     ) {
-      throw new Error("Cook must be primed and ready before scheduling instructions");
+      throw new Error("The selected cooking person is not ready");
     }
     if (!run) throw new Error("Full-day plan run not found");
     const rawContent = requiredText(args.rawContent, "Approval", 5_000);
@@ -383,34 +399,45 @@ export const approveDayPlan = mutation({
       "Persist exact approval before scheduling cook work",
       `Approved full-day plan version ${dayPlan.version}`,
     );
-    const visits = await ctx.db
-      .query("tarlaCookVisits")
-      .withIndex("by_cook_state", (q) => q.eq("cookStateId", cookState._id))
-      .collect();
     const dayOfWeek = dayOfWeekForDate(dayPlan.targetDate);
     const applicableVisits = visits.filter(
-      (visit) => visit.active && visit.daysOfWeek.includes(dayOfWeek),
+      (visit) =>
+        visit.active &&
+        visit.daysOfWeek.includes(dayOfWeek) &&
+        readyCookStates.some((state) => state._id === visit.cookStateId),
     );
     if (applicableVisits.length === 0) {
       throw new Error("No active cook visit is configured for this day");
     }
-    const uncovered = dayPlan.mealSlots.filter(
-      (mealSlot) =>
-        !applicableVisits.some((visit) => visit.mealSlots.includes(mealSlot)),
+    const allocations = allocateMealsToCookVisits(
+      dayPlan.mealSlots,
+      applicableVisits.map((visit) => ({
+        id: String(visit._id),
+        arrivalTime: visit.arrivalTime,
+        mealSlots: visit.mealSlots,
+        relationshipType:
+          readyCookStates.find((state) => state._id === visit.cookStateId)
+            ?.relationshipType ?? "hired_cook",
+      })),
     );
-    if (uncovered.length > 0) {
-      throw new Error(`Cook visits do not cover: ${uncovered.join(", ")}`);
-    }
     await addCompletedStep(
       ctx,
       run._id,
       order++,
       "allocate_meals_to_cook_visits",
       "Map approved meals to configured visit responsibilities",
-      `${dayPlan.mealSlots.length} meals allocated across ${applicableVisits.length} visits`,
+      `${dayPlan.mealSlots.length} meals allocated across ${allocations.length} matched visits`,
     );
     const executions = [];
-    for (const visit of applicableVisits) {
+    for (const allocation of allocations) {
+      const visit = applicableVisits.find(
+        (candidate) => String(candidate._id) === allocation.visitId,
+      );
+      if (!visit) throw new Error("Allocated cooking visit was not found");
+      const cookState = readyCookStates.find(
+        (candidate) => candidate._id === visit.cookStateId,
+      );
+      if (!cookState) throw new Error("Allocated cooking person was not found");
       const occurrenceKey = `${dayPlan.seriesId}:${visit._id}:${dayPlan.targetDate}`;
       const existing = await ctx.db
         .query("tarlaExecutions")
@@ -422,11 +449,16 @@ export const approveDayPlan = mutation({
         }
         await ctx.db.patch(existing._id, {
           dayPlanId: dayPlan._id,
+          assignedMealSlots: allocation.assignedMealSlots,
+          selectedCookReason: allocation.reason,
+          recipientClass: cookRecipientClass(cookState.relationshipType),
+          planVersion: dayPlan.version,
           updatedAt: Date.now(),
         });
         executions.push({
           executionId: existing._id,
           cookVisitId: visit._id,
+          assignedMealSlots: allocation.assignedMealSlots,
           scheduledFor: existing.scheduledFor,
           reused: true,
         });
@@ -458,6 +490,10 @@ export const approveDayPlan = mutation({
         runId: visitRunId,
         cookMemberId: cookState.memberId,
         communicationEndpointId: cookState.communicationEndpointId,
+        assignedMealSlots: allocation.assignedMealSlots,
+        selectedCookReason: allocation.reason,
+        recipientClass: cookRecipientClass(cookState.relationshipType),
+        planVersion: dayPlan.version,
         status: "scheduled",
         scheduledFor: timing.instructionAt,
         occurrenceKey,
@@ -478,6 +514,7 @@ export const approveDayPlan = mutation({
       executions.push({
         executionId,
         cookVisitId: visit._id,
+        assignedMealSlots: allocation.assignedMealSlots,
         scheduledFor: timing.instructionAt,
         arrivalAt: timing.arrivalAt,
         reused: false,

@@ -191,6 +191,17 @@
 .nextCard small { color: rgba(255, 255, 255, 0.7); }
 .nextCard small { display: block; margin-top: 13px; font-size: 0.72rem; }
 .nextCard a { text-decoration: underline; text-underline-offset: 4px; }
+.requestList { display: grid; gap: 14px; }
+.request { border-top: 1px solid rgba(255,255,255,.18); padding-top: 14px; }
+.request:first-child { border-top: 0; padding-top: 0; }
+.request h2 { margin-bottom: 8px; font-size: 1.3rem; }
+.request small { margin-top: 8px; }
+.requestActions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
+.requestActions button { border: 1px solid rgba(255,255,255,.55); border-radius: 999px; padding: 10px 14px; color: var(--sage); background: #fffdf8; font: inherit; font-size: .76rem; font-weight: 800; cursor: pointer; }
+.requestActions button:last-child { color: white; background: transparent; }
+.requestActions button:disabled { cursor: wait; opacity: .55; }
+.requestActions button:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.decisionError { margin-top: 12px; color: white !important; font-weight: 700; }
 
 .lowerGrid {
   display: grid;
@@ -207,6 +218,7 @@
   padding: 24px;
   background: rgba(255, 253, 248, 0.82);
 }
+.fullActivity { margin: 26px 6vw 0; }
 
 .activityList article {
   display: grid;
@@ -241,6 +253,9 @@
 .memoryCard > p:not(.eyebrow),
 .memoryCard small { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
 .exceptionCard a { display: inline-block; margin-top: 14px; color: var(--terracotta); font-weight: 800; font-size: 0.8rem; }
+.shoppingList { display: grid; gap: 10px; margin: 12px 0 16px; list-style: none; }
+.shoppingList li { display: grid; gap: 3px; border-top: 1px solid rgba(41,42,36,.08); padding-top: 10px; }
+.shoppingList span { color: var(--muted); font-size: .72rem; line-height: 1.4; }
 .memoryCard ul { display: grid; gap: 9px; margin: 16px 0 18px 18px; color: #54564d; font-size: 0.82rem; line-height: 1.45; }
 .empty { padding: 40px 0; color: var(--muted); text-align: center; }
 
@@ -270,7 +285,8 @@
   .welcome { padding: 52px 20px 34px; }
   .assistants,
   .nextGrid,
-  .lowerGrid { margin-left: 20px; margin-right: 20px; }
+  .lowerGrid,
+  .fullActivity { margin-left: 20px; margin-right: 20px; }
   .assistantGrid article { grid-template-columns: 54px 1fr; padding: 17px; }
   .assistantIcon { width: 52px; height: 60px; }
   .assistantGrid article > strong { grid-column: 2; width: fit-content; }

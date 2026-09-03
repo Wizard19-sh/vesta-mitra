@@ -1,18 +1,22 @@
 import { v } from "convex/values";
-import {
-  composeRoutineMessage,
-  type MitraRoutineType,
-} from "../lib/composeRoutineMessage";
+import { type MitraRoutineType } from "../lib/composeRoutineMessage";
 import {
   nextOccurrenceAfter,
   type RoutineTiming,
 } from "../lib/mitraSchedule";
-import type { ConversationStyle, Language } from "../lib/composeCheckIn";
+import type { Language } from "../lib/composeCheckIn";
+import {
+  composeCaretakerNoResponseFollowUp,
+  resolveMitraRecipient,
+  shouldFollowUpWithCaretaker,
+} from "../lib/m2Execution";
+import { composeMitraMessage, type AeviaLanguage } from "../lib/aeviaSetup";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { internalMutation } from "./_generated/server";
 import { getMessageTransport } from "./messageTransport";
+import { ensureEvidenceRecord, recordExecutionEvent } from "./executionSupport";
 
 export const triggerRoutine = internalMutation({
   args: {
@@ -61,14 +65,11 @@ export const triggerRoutine = internalMutation({
       "Accepted a unique scheduled occurrence",
     );
 
-    const recipientMemberId = routine.recipientMemberId ?? routine.memberId;
-    const [household, member, recipientMember, parent, endpoint, readiness, preferences] =
+    const [household, member, parent, readiness, preferences, endpoints] =
       await Promise.all([
         ctx.db.get(routine.householdId),
         ctx.db.get(routine.memberId),
-        ctx.db.get(recipientMemberId),
         ctx.db.get(routine.parentId),
-        ctx.db.get(routine.communicationEndpointId),
         ctx.db
           .query("mitraMemberStates")
           .withIndex("by_member", (q) => q.eq("memberId", routine.memberId!))
@@ -79,19 +80,98 @@ export const triggerRoutine = internalMutation({
             q.eq("householdId", routine.householdId!),
           )
           .collect(),
+        ctx.db
+          .query("communicationEndpoints")
+          .withIndex("by_household", (q) =>
+            q.eq("householdId", routine.householdId!),
+          )
+          .collect(),
       ]);
-    if (!household || !member || !recipientMember || !parent || !endpoint) {
+    if (!household || !member || !parent) {
       throw new Error("Scheduled routine context was not found");
     }
     if (readiness?.readiness !== "ready") {
       throw new Error("Parent is not ready for scheduled Mitra messages");
     }
-    if (!endpoint.active || endpoint.consentStatus !== "granted") {
-      throw new Error("Communication endpoint is not ready");
+    const directEndpoint = readyEndpoint(endpoints, routine.memberId);
+    const caretakerEndpoint = parent.caretakerMemberId
+      ? readyEndpoint(endpoints, parent.caretakerMemberId)
+      : undefined;
+    const recipientPolicy = resolveMitraRecipient({
+      communicationPath: parent.coordinationMode ?? "senior_directly",
+      configuredAudience: routine.recipientAudience,
+      directAvailable: Boolean(directEndpoint),
+      caretakerAvailable: Boolean(caretakerEndpoint),
+    });
+    await addCompletedStep(
+      ctx,
+      runId,
+      2,
+      "resolve_recipient",
+      "Apply the household's direct, caretaker, or both communication choice",
+      recipientPolicy.status === "ready"
+        ? `Resolved recipient: ${recipientPolicy.recipientClass} (${recipientPolicy.reason})`
+        : recipientPolicy.reason,
+      { component: "mitra", usageStatus: "not_applicable" },
+    );
+    if (recipientPolicy.status === "unresolved") {
+      const checkInId = await ctx.db.insert("checkIns", {
+        ownerKey: routine.ownerKey,
+        parentId: routine.parentId,
+        routineId: routine._id,
+        status: "UNRESOLVED",
+        createdAt: now,
+        householdId: routine.householdId,
+        memberId: routine.memberId,
+        scheduledFor,
+        occurrenceKey,
+        inboundSignalReceived: false,
+        runId,
+        failureReason: recipientPolicy.reason,
+        recipientSelectionReason: recipientPolicy.reason,
+      });
+      await addCompletedStep(
+        ctx,
+        runId,
+        3,
+        "halt_no_recipient",
+        "Stop before composition when no valid Mitra recipient exists",
+        "Run stopped without sending because no recipient could be resolved.",
+      );
+      const run = await ctx.db.get(runId);
+      if (!run) throw new Error("Run not found");
+      await completeRun(
+        ctx,
+        run,
+        `Mitra routine stopped: ${recipientPolicy.reason}`,
+      );
+      await ensureEvidenceRecord(ctx, {
+        run,
+        surface: "whatsapp",
+        recipientClass: "senior",
+        outcome: "UNRESOLVED",
+        primaryRubricClaim: "Real output on a real surface",
+      });
+      return checkInId;
+    }
+    const recipientMemberId =
+      recipientPolicy.recipientClass === "caretaker"
+        ? parent.caretakerMemberId
+        : routine.memberId;
+    const endpoint =
+      recipientPolicy.recipientClass === "caretaker"
+        ? caretakerEndpoint
+        : directEndpoint;
+    const recipientMember = recipientMemberId
+      ? await ctx.db.get(recipientMemberId)
+      : null;
+    if (!recipientMember || !endpoint) {
+      throw new Error("The selected routine recipient is not ready");
     }
     const activePreferences = preferences.filter(
       (preference) =>
         preference.active &&
+        (preference.expiresAt === undefined || preference.expiresAt > now) &&
         (!preference.memberId || preference.memberId === member._id),
     );
     await addCompletedStep(
@@ -101,6 +181,15 @@ export const triggerRoutine = internalMutation({
       "retrieve_context",
       "Load household, parent, endpoint, readiness, and shared preferences",
       `Loaded ${activePreferences.length} relevant active preferences`,
+      { component: "mitra", usageStatus: "not_applicable" },
+    );
+    await addCompletedStep(
+      ctx,
+      runId,
+      4,
+      "create_routine_instance",
+      "Create one occurrence separate from the durable routine",
+      "Created one idempotent routine instance",
     );
 
     const checkInId = await ctx.db.insert("checkIns", {
@@ -111,20 +200,15 @@ export const triggerRoutine = internalMutation({
       createdAt: now,
       householdId: routine.householdId,
       memberId: routine.memberId,
-      communicationEndpointId: routine.communicationEndpointId,
+      communicationEndpointId: endpoint._id,
+      intendedRecipientMemberId: recipientMember._id,
+      intendedRecipientClass: recipientPolicy.recipientClass,
+      recipientSelectionReason: recipientPolicy.reason,
       scheduledFor,
       occurrenceKey,
       inboundSignalReceived: false,
       runId,
     });
-    await addCompletedStep(
-      ctx,
-      runId,
-      3,
-      "create_routine_instance",
-      "Create one occurrence separate from the durable routine",
-      "Created one idempotent routine instance",
-    );
 
     const language = resolveLanguage(
       activePreferences,
@@ -132,25 +216,34 @@ export const triggerRoutine = internalMutation({
       recipientMember.languagePreference,
       parent.preferredLanguage,
     );
-    const salutation = resolveSalutation(activePreferences, parent);
-    const message =
-      routine.prompt !== routine.label
-        ? routine.prompt
-        : composeRoutineMessage({
-            salutation,
-            language,
-            style: resolveStyle(parent.conversationStyle),
-            routineType: runtimeRoutineType(routine.type),
-            label: routine.label ?? routine.prompt,
-            isFirstContact: false,
-          });
+    const seniorSalutation = resolveSalutation(activePreferences, parent);
+    const recipientSalutation =
+      recipientMember.preferredSalutation ?? recipientMember.name;
+    const message = composeMitraMessage({
+      context: {
+        agent: "mitra",
+        audience: recipientPolicy.recipientClass,
+        surface: "whatsapp",
+        moment: "reminder",
+      },
+      recipientSalutation,
+      seniorSalutation,
+      label: routine.label ?? routine.prompt,
+      type: runtimeRoutineType(routine.type),
+      language: language as AeviaLanguage,
+    });
     await addCompletedStep(
       ctx,
       runId,
-      4,
+      5,
       "compose_message",
       "Compose from routine type, salutation, language, and shared context",
       `Composed a brief ${language} ${runtimeRoutineType(routine.type)} reminder`,
+      {
+        component: "mitra",
+        tool: "bounded_template",
+        usageStatus: "not_applicable",
+      },
     );
 
     const sent = await getMessageTransport(ctx).sendMessage({
@@ -166,16 +259,34 @@ export const triggerRoutine = internalMutation({
         checkInId: String(checkInId),
         runId: String(runId),
         routineId: String(routine._id),
+        purpose: "routine_reminder",
+        recipientClass: recipientPolicy.recipientClass,
       },
+    });
+    await recordExecutionEvent(ctx, {
+      eventKey: `${checkInId}:reminder_requested`,
+      householdId: household._id,
+      runId,
+      taskType: "scheduled_routine",
+      eventName: "message_scheduled",
+      agent: "mitra",
+      outcome: sent.providerStatus,
     });
     const expectedResponseBy = sent.timestamp + (routine.responseWindowMs ?? 4 * 60 * 60 * 1_000);
     await addCompletedStep(
       ctx,
       runId,
-      5,
+      6,
       "send_message",
       "Send through the provider-neutral transport contract",
       "Provider-neutral transport recorded one outbound message request",
+      {
+        component: "transport",
+        tool: "whatsapp",
+        provider: sent.provider,
+        usageStatus: "not_applicable",
+        outcome: sent.providerStatus,
+      },
     );
     await ctx.db.patch(checkInId, {
       status: "WAITING",
@@ -186,9 +297,10 @@ export const triggerRoutine = internalMutation({
     await addWaitingStep(
       ctx,
       runId,
-      6,
+      7,
       "wait_for_reply",
       "Wait for a normalized inbound signal or response-window expiry",
+      { component: "mitra", usageStatus: "not_applicable" },
     );
     await ctx.db.patch(runId, {
       status: "waiting",
@@ -247,6 +359,13 @@ export const handleResponseTimeout = internalMutation({
     }
     const run = await ctx.db.get(instance.runId);
     if (!run) return null;
+    const [parent, routine] = await Promise.all([
+      ctx.db.get(instance.parentId),
+      ctx.db.get(instance.routineId),
+    ]);
+    if (!parent || !routine || !instance.householdId || !instance.memberId) {
+      return null;
+    }
     const now = Date.now();
     await completeLatestWaitingStep(
       ctx,
@@ -254,6 +373,90 @@ export const handleResponseTimeout = internalMutation({
       "Response window expired without an inbound signal",
     );
     let order = await nextStepOrder(ctx, run._id);
+    if (
+      !instance.followUpCommunicationEndpointId &&
+      parent.caretakerMemberId &&
+      shouldFollowUpWithCaretaker({
+        communicationPath: parent.coordinationMode ?? "senior_directly",
+        initialRecipientClass: instance.intendedRecipientClass ?? "senior",
+        caretakerAvailable: true,
+      })
+    ) {
+      const endpoints = await ctx.db
+        .query("communicationEndpoints")
+        .withIndex("by_household", (q) => q.eq("householdId", instance.householdId!))
+        .collect();
+      const caretakerEndpoint = readyEndpoint(endpoints, parent.caretakerMemberId);
+      const [caretaker, senior] = await Promise.all([
+        ctx.db.get(parent.caretakerMemberId),
+        ctx.db.get(instance.memberId),
+      ]);
+      if (caretakerEndpoint && caretaker && senior) {
+        const language = endpointLanguage(caretakerEndpoint.preferredLanguage);
+        const message = composeCaretakerNoResponseFollowUp({
+          language,
+          caretakerSalutation: caretaker.preferredSalutation ?? caretaker.name,
+          seniorSalutation: senior.preferredSalutation ?? parent.salutation ?? parent.name,
+          routineLabel: routine.label ?? routine.prompt,
+        });
+        const sent = await getMessageTransport(ctx).sendMessage({
+          recipient: {
+            memberId: String(caretaker._id),
+            endpointId: String(caretakerEndpoint._id),
+            address: caretakerEndpoint.address,
+          },
+          channel: caretakerEndpoint.channel,
+          message,
+          metadata: {
+            householdId: String(instance.householdId),
+            checkInId: String(instance._id),
+            runId: String(run._id),
+            routineId: String(routine._id),
+            purpose: "caretaker_no_response_follow_up",
+            recipientClass: "caretaker",
+          },
+        });
+        const nextExpectedResponseBy = sent.timestamp + 2 * 60 * 60 * 1_000;
+        await ctx.db.patch(instance._id, {
+          status: "WAITING",
+          followUpCommunicationEndpointId: caretakerEndpoint._id,
+          followUpOutboundMessageId: sent.messageId,
+          expectedResponseBy: nextExpectedResponseBy,
+        });
+        await addCompletedStep(
+          ctx,
+          run._id,
+          order++,
+          "caretaker_follow_up",
+          "Use the configured both-mode follow-up after the senior did not reply",
+          `Asked ${caretaker.name} to check; the original routine was not marked complete`,
+          {
+            component: "mitra",
+            tool: "whatsapp",
+            provider: sent.provider,
+            usageStatus: "not_applicable",
+            outcome: sent.providerStatus,
+          },
+        );
+        await addWaitingStep(
+          ctx,
+          run._id,
+          order,
+          "wait_for_caretaker_reply",
+          "Wait for the configured caretaker or family follow-up",
+          { component: "mitra", usageStatus: "not_applicable" },
+        );
+        const timeoutJobId = await ctx.scheduler.runAt(
+          nextExpectedResponseBy,
+          internal.mitraRuntime.handleResponseTimeout,
+          { checkInId },
+        );
+        await ctx.db.patch(instance._id, {
+          responseTimeoutJobId: String(timeoutJobId),
+        });
+        return instance._id;
+      }
+    }
     await addCompletedStep(
       ctx,
       run._id,
@@ -261,6 +464,7 @@ export const handleResponseTimeout = internalMutation({
       "update_routine_state",
       "Apply the configured response window without inferring concern",
       "Marked the instance NO_RESPONSE with no emergency implication",
+      { component: "mitra", usageStatus: "not_applicable", outcome: "NO_RESPONSE" },
     );
     await ctx.db.patch(instance._id, {
       status: "NO_RESPONSE",
@@ -269,6 +473,7 @@ export const handleResponseTimeout = internalMutation({
         summary: "No response arrived within the configured response window.",
         basis: "response_window",
       },
+      primaryUserSummary: `${parent.salutation ?? parent.name} did not reply about ${routine.label ?? routine.prompt}.`,
     });
     await addCompletedStep(
       ctx,
@@ -279,6 +484,24 @@ export const handleResponseTimeout = internalMutation({
       "Completed with NO_RESPONSE and no escalation",
     );
     await completeRun(ctx, run, "Routine instance ended with NO_RESPONSE", now);
+    await ctx.db.patch(run._id, {
+      outcome: "NO_RESPONSE",
+      successfullyCompletedTask: false,
+      updatedAt: Date.now(),
+    });
+    const endpoint = instance.communicationEndpointId
+      ? await ctx.db.get(instance.communicationEndpointId)
+      : null;
+    await ensureEvidenceRecord(ctx, {
+      run,
+      surface:
+        endpoint?.providerMetadata?.provider === "development"
+          ? "development_transport"
+          : "whatsapp",
+      recipientClass: instance.intendedRecipientClass ?? "senior",
+      outcome: "NO_RESPONSE",
+      primaryRubricClaim: "Real output on a real surface",
+    });
     return instance._id;
   },
 });
@@ -290,6 +513,16 @@ async function addCompletedStep(
   name: string,
   inputSummary: string,
   outputSummary: string,
+  metadata?: {
+    component?: string;
+    tool?: string;
+    provider?: string;
+    model?: string;
+    usageStatus?: "tracked" | "unavailable" | "not_applicable";
+    outcome?: string;
+    exceptionId?: Id<"executionExceptions">;
+    evidenceRecordId?: Id<"evidenceRecords">;
+  },
 ) {
   const startedAt = Date.now();
   const completedAt = Date.now();
@@ -303,6 +536,7 @@ async function addCompletedStep(
     latencyMs: completedAt - startedAt,
     inputSummary,
     outputSummary,
+    ...metadata,
     createdAt: startedAt,
     updatedAt: completedAt,
   });
@@ -314,6 +548,12 @@ async function addWaitingStep(
   order: number,
   name: string,
   inputSummary: string,
+  metadata?: {
+    component?: string;
+    tool?: string;
+    provider?: string;
+    usageStatus?: "tracked" | "unavailable" | "not_applicable";
+  },
 ) {
   const now = Date.now();
   return ctx.db.insert("agentRunSteps", {
@@ -323,6 +563,7 @@ async function addWaitingStep(
     status: "waiting",
     startedAt: now,
     inputSummary,
+    ...metadata,
     createdAt: now,
     updatedAt: now,
   });
@@ -414,8 +655,21 @@ function resolveSalutation(
   return memory?.trim() || parent.salutation || parent.name;
 }
 
-function resolveStyle(
-  style: Doc<"parents">["conversationStyle"],
-): ConversationStyle {
-  return style ?? "Warm & caring";
+function readyEndpoint(
+  endpoints: Doc<"communicationEndpoints">[],
+  memberId: Id<"members">,
+) {
+  return endpoints.find(
+    (endpoint) =>
+      endpoint.memberId === memberId &&
+      endpoint.channel.toLocaleLowerCase() === "whatsapp" &&
+      endpoint.active &&
+      endpoint.consentStatus === "granted",
+  );
+}
+
+function endpointLanguage(value?: string): AeviaLanguage {
+  if (/hinglish/i.test(value ?? "")) return "Hinglish";
+  if (/hindi/i.test(value ?? "")) return "Hindi";
+  return "English";
 }

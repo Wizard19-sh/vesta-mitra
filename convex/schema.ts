@@ -35,8 +35,11 @@ export default defineSchema({
     .index("by_household", ["householdId"]),
 
   productAnalyticsEvents: defineTable({
+    eventKey: v.optional(v.string()),
     anonymousId: v.string(),
     householdId: v.optional(v.id("households")),
+    runId: v.optional(v.id("agentRuns")),
+    taskType: v.optional(v.string()),
     eventName: v.string(),
     route: v.optional(v.string()),
     agent: v.optional(
@@ -46,6 +49,7 @@ export default defineSchema({
     occurredAt: v.number(),
     createdAt: v.number(),
   })
+    .index("by_event_key", ["eventKey"])
     .index("by_anonymous_and_time", ["anonymousId", "occurredAt"])
     .index("by_household_and_time", ["householdId", "occurredAt"])
     .index("by_event", ["eventName"]),
@@ -182,7 +186,8 @@ export default defineSchema({
       "timestamp",
     ])
     .index("by_check_in", ["checkInId"])
-    .index("by_tarla_execution", ["tarlaExecutionId"]),
+    .index("by_tarla_execution", ["tarlaExecutionId"])
+    .index("by_run", ["runId"]),
 
   tarlaHouseholdProfiles: defineTable({
     householdId: v.id("households"),
@@ -546,6 +551,16 @@ export default defineSchema({
     scheduledFor: v.optional(v.number()),
     occurrenceKey: v.optional(v.string()),
     scheduledJobId: v.optional(v.string()),
+    assignedMealSlots: v.optional(v.array(v.string())),
+    selectedCookReason: v.optional(v.string()),
+    recipientClass: v.optional(
+      v.union(
+        v.literal("hired_cook"),
+        v.literal("family_cook"),
+        v.literal("primary_user"),
+      ),
+    ),
+    planVersion: v.optional(v.number()),
     lockedMealSlots: v.optional(v.array(v.string())),
     latestInboundSignalId: v.optional(v.id("inboundSignals")),
     unavailableIngredientKeys: v.array(v.string()),
@@ -635,6 +650,7 @@ export default defineSchema({
     dayPlanId: v.optional(v.id("tarlaDayPlans")),
     cookVisitId: v.optional(v.id("tarlaCookVisits")),
     purpose: v.optional(v.string()),
+    recipientClass: v.optional(v.string()),
     recipientAddress: v.string(),
     channel: v.string(),
     message: v.string(),
@@ -642,7 +658,8 @@ export default defineSchema({
   })
     .index("by_message_id", ["messageId"])
     .index("by_check_in", ["checkInId"])
-    .index("by_tarla_execution", ["tarlaExecutionId"]),
+    .index("by_tarla_execution", ["tarlaExecutionId"])
+    .index("by_run", ["runId"]),
 
   transportMessages: defineTable({
     messageId: v.string(),
@@ -669,6 +686,7 @@ export default defineSchema({
     dayPlanId: v.optional(v.id("tarlaDayPlans")),
     cookVisitId: v.optional(v.id("tarlaCookVisits")),
     purpose: v.optional(v.string()),
+    recipientClass: v.optional(v.string()),
     channel: v.string(),
     message: v.string(),
     requestedAt: v.number(),
@@ -686,6 +704,7 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotencyKey"])
     .index("by_provider_message_id", ["providerMessageId"])
     .index("by_endpoint", ["communicationEndpointId"])
+    .index("by_run", ["runId"])
     .index("by_check_in", ["checkInId"])
     .index("by_tarla_execution", ["tarlaExecutionId"]),
 
@@ -713,6 +732,9 @@ export default defineSchema({
     costCurrency: v.optional(v.string()),
     inputSummary: v.optional(v.string()),
     outputSummary: v.optional(v.string()),
+    outcome: v.optional(v.string()),
+    successfullyCompletedTask: v.optional(v.boolean()),
+    primaryUserInterventionRequired: v.optional(v.boolean()),
     error: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -736,6 +758,20 @@ export default defineSchema({
     latencyMs: v.optional(v.number()),
     inputSummary: v.optional(v.string()),
     outputSummary: v.optional(v.string()),
+    component: v.optional(v.string()),
+    tool: v.optional(v.string()),
+    provider: v.optional(v.string()),
+    model: v.optional(v.string()),
+    usageStatus: v.optional(
+      v.union(
+        v.literal("tracked"),
+        v.literal("unavailable"),
+        v.literal("not_applicable"),
+      ),
+    ),
+    outcome: v.optional(v.string()),
+    exceptionId: v.optional(v.id("executionExceptions")),
+    evidenceRecordId: v.optional(v.id("evidenceRecords")),
     error: v.optional(v.string()),
     inputTokens: v.optional(v.number()),
     outputTokens: v.optional(v.number()),
@@ -893,6 +929,7 @@ export default defineSchema({
     routineId: v.id("routines"),
     status: v.union(
       v.literal("SCHEDULED"),
+      v.literal("UNRESOLVED"),
       v.literal("SENT"),
       v.literal("WAITING"),
       v.literal("CONFIRMED"),
@@ -917,6 +954,21 @@ export default defineSchema({
     householdId: v.optional(v.id("households")),
     memberId: v.optional(v.id("members")),
     communicationEndpointId: v.optional(v.id("communicationEndpoints")),
+    intendedRecipientMemberId: v.optional(v.id("members")),
+    intendedRecipientClass: v.optional(
+      v.union(v.literal("senior"), v.literal("caretaker")),
+    ),
+    recipientSelectionReason: v.optional(v.string()),
+    followUpCommunicationEndpointId: v.optional(
+      v.id("communicationEndpoints"),
+    ),
+    followUpOutboundMessageId: v.optional(v.string()),
+    responseSourceMemberId: v.optional(v.id("members")),
+    responseSourceAudience: v.optional(
+      v.union(v.literal("senior"), v.literal("caretaker")),
+    ),
+    acknowledgementOutboundMessageId: v.optional(v.string()),
+    primaryUserSummary: v.optional(v.string()),
     scheduledFor: v.optional(v.number()),
     occurrenceKey: v.optional(v.string()),
     outboundMessageId: v.optional(v.string()),
@@ -952,5 +1004,73 @@ export default defineSchema({
     .index("by_owner", ["ownerKey"])
     .index("by_routine", ["routineId"])
     .index("by_member", ["memberId"])
+    .index("by_communication_endpoint", ["communicationEndpointId"])
+    .index("by_follow_up_endpoint", ["followUpCommunicationEndpointId"])
     .index("by_occurrence_key", ["occurrenceKey"]),
+
+  executionExceptions: defineTable({
+    householdId: v.id("households"),
+    runId: v.id("agentRuns"),
+    agent: v.union(v.literal("mitra"), v.literal("tarla")),
+    taskType: v.string(),
+    checkInId: v.optional(v.id("checkIns")),
+    tarlaExecutionId: v.optional(v.id("tarlaExecutions")),
+    sourceMemberId: v.optional(v.id("members")),
+    riskClass: v.union(
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+    ),
+    policyCode: v.string(),
+    rawRequest: v.string(),
+    proposedAction: v.string(),
+    status: v.union(
+      v.literal("pending_approval"),
+      v.literal("needs_review"),
+      v.literal("auto_resolved"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("resolved"),
+    ),
+    requiredApproverMemberId: v.optional(v.id("members")),
+    decision: v.optional(v.union(v.literal("approve"), v.literal("reject"))),
+    decisionByMemberId: v.optional(v.id("members")),
+    decisionAt: v.optional(v.number()),
+    resultingAction: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    resolvedAt: v.optional(v.number()),
+  })
+    .index("by_household", ["householdId"])
+    .index("by_household_and_status", ["householdId", "status"])
+    .index("by_run", ["runId"])
+    .index("by_check_in", ["checkInId"])
+    .index("by_tarla_execution", ["tarlaExecutionId"]),
+
+  evidenceRecords: defineTable({
+    evidenceId: v.string(),
+    runId: v.id("agentRuns"),
+    householdId: v.id("households"),
+    taskType: v.string(),
+    timestamp: v.number(),
+    surface: v.union(
+      v.literal("whatsapp"),
+      v.literal("consumer_ui"),
+      v.literal("development_transport"),
+    ),
+    recipientClass: v.string(),
+    outcome: v.string(),
+    primaryRubricClaim: v.string(),
+    artifactStatus: v.union(
+      v.literal("CAPTURED"),
+      v.literal("MISSING"),
+      v.literal("NOT_APPLICABLE"),
+    ),
+    artifactReference: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_evidence_id", ["evidenceId"])
+    .index("by_run", ["runId"])
+    .index("by_household", ["householdId"]),
 });

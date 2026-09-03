@@ -10,6 +10,7 @@ import {
   internalQuery,
   query,
 } from "./_generated/server";
+import { recordExecutionEvent } from "./executionSupport";
 
 export const getDispatchContext = internalQuery({
   args: { transportMessageId: v.id("transportMessages") },
@@ -50,8 +51,11 @@ export const markProviderAccepted = internalMutation({
     if (message.checkInId) {
       const checkIn = await ctx.db.get(message.checkInId);
       if (checkIn && checkIn.status !== "FAILED") {
+        const isFollowUp = message.purpose === "caretaker_no_response_follow_up";
         await ctx.db.patch(checkIn._id, {
-          outboundMessageId: providerMessageId,
+          ...(isFollowUp
+            ? { followUpOutboundMessageId: providerMessageId }
+            : { outboundMessageId: providerMessageId }),
           sentAt: args.acceptedAt,
         });
       }
@@ -78,8 +82,21 @@ export const markProviderAccepted = internalMutation({
       inputSummary: "Submit the normalized outbound message to its provider adapter",
       outputSummary: `${providerDisplayName(message.provider)} accepted the WhatsApp message request as ${providerMessageId}`,
       status: "completed",
+      provider: message.provider,
+      outcome: "accepted",
     });
     const run = await ctx.db.get(message.runId);
+    if (run && (run.agent === "mitra" || run.agent === "tarla")) {
+      await recordExecutionEvent(ctx, {
+        eventKey: `${message._id}:provider_accepted`,
+        householdId: message.householdId,
+        runId: message.runId,
+        taskType: run.taskType,
+        eventName: "provider_accepted",
+        agent: run.agent,
+        outcome: "accepted",
+      });
+    }
     if (run?.status === "waiting") {
       await ctx.db.patch(run._id, {
         outputSummary:
@@ -197,6 +214,31 @@ export const updateDeliveryStatus = internalMutation({
       updatedAt: args.timestamp,
     };
     await ctx.db.patch(message._id, update);
+    await insertStepBeforeWaiting(ctx, message.runId, {
+      name: `provider_${status}`,
+      inputSummary: "Apply the provider-reported message lifecycle state",
+      outputSummary:
+        status === "accepted"
+          ? `${providerDisplayName(message.provider)} accepted the message request; delivery is not implied`
+          : `${providerDisplayName(message.provider)} reported ${status}`,
+      status: "completed",
+      provider: message.provider,
+      outcome: status,
+    });
+    if (status === "delivered") {
+      const run = await ctx.db.get(message.runId);
+      if (run && (run.agent === "mitra" || run.agent === "tarla")) {
+        await recordExecutionEvent(ctx, {
+          eventKey: `${message._id}:delivered`,
+          householdId: message.householdId,
+          runId: message.runId,
+          taskType: run.taskType,
+          eventName: "message_delivered",
+          agent: run.agent,
+          outcome: "delivered",
+        });
+      }
+    }
     if (status === "failed") {
       const linkedTaskFailed = await failLinkedTask(
         ctx,
@@ -277,6 +319,8 @@ async function insertStepBeforeWaiting(
     inputSummary: string;
     outputSummary: string;
     status: "completed";
+    provider?: string;
+    outcome?: string;
   },
 ) {
   const steps = await ctx.db
@@ -308,6 +352,11 @@ async function insertStepBeforeWaiting(
     latencyMs: 0,
     inputSummary: step.inputSummary,
     outputSummary: step.outputSummary,
+    component: "transport",
+    tool: "whatsapp",
+    provider: step.provider,
+    usageStatus: "not_applicable",
+    outcome: step.outcome,
     createdAt: now,
     updatedAt: now,
   });
@@ -345,6 +394,10 @@ async function failWaitingStep(
     latencyMs: 0,
     inputSummary: "Dispatch the normalized message through its provider adapter",
     error,
+    component: "transport",
+    tool: "whatsapp",
+    usageStatus: "not_applicable",
+    outcome: "failed",
     createdAt: failedAt,
     updatedAt: failedAt,
   });

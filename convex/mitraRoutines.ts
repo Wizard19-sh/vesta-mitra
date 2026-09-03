@@ -301,6 +301,7 @@ export const updateScheduledRoutine = mutation({
       recipientAudience: args.recipientAudience ?? routine.recipientAudience ?? "senior",
       notes: optionalText(args.notes, "Routine notes", 1_000),
       timing: normalizedTiming,
+      w2Enabled: true,
       nextOccurrenceAt,
       scheduledJobId: String(scheduledJobId),
       updatedAt: now,

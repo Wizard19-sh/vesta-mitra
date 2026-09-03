@@ -23,6 +23,7 @@ const ALLOWED_EVENTS = new Set([
   "task_completed",
   "exception_created",
   "exception_resolved",
+  "primary_user_intervention",
   "terms_viewed",
   "privacy_viewed",
 ]);
@@ -42,6 +43,8 @@ export const capture = mutation({
     route: v.optional(v.string()),
     agent: v.optional(agent),
     outcome: v.optional(v.string()),
+    runId: v.optional(v.id("agentRuns")),
+    taskType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const eventName = safeText(args.eventName, "Event name", 80);
@@ -59,7 +62,10 @@ export const capture = mutation({
     const now = Date.now();
     return ctx.db.insert("productAnalyticsEvents", {
       anonymousId,
+      eventKey: undefined,
       householdId: args.householdId,
+      runId: args.runId,
+      taskType: optionalText(args.taskType, "Task type", 120),
       eventName,
       route: optionalText(args.route, "Route", 120),
       agent: args.agent,
@@ -87,6 +93,41 @@ export const listForHousehold = query({
       )
       .order("desc")
       .take(100);
+  },
+});
+
+export const getExecutionSummary = query({
+  args: {
+    ownerKey: v.string(),
+    householdId: v.id("households"),
+  },
+  handler: async (ctx, args) => {
+    const household = await ctx.db.get(args.householdId);
+    if (!household || household.ownerKey !== args.ownerKey) {
+      throw new Error("Household not found");
+    }
+    const events = await ctx.db
+      .query("productAnalyticsEvents")
+      .withIndex("by_household_and_time", (q) =>
+        q.eq("householdId", args.householdId),
+      )
+      .collect();
+    const successfullyCompletedTasks = events.filter(
+      (event) => event.eventName === "task_completed" && event.runId,
+    ).length;
+    const primaryUserInterventions = events.filter(
+      (event) => event.eventName === "primary_user_intervention" && event.runId,
+    ).length;
+    return {
+      successfullyCompletedTasks,
+      primaryUserInterventions,
+      interventionsPerSuccessfullyCompletedTask:
+        successfullyCompletedTasks === 0
+          ? null
+          : primaryUserInterventions / successfullyCompletedTasks,
+      definition:
+        "A primary-user intervention is an execution decision or repair, not setup, browsing, delivery state, or a recipient reply.",
+    };
   },
 });
 

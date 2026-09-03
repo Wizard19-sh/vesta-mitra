@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import { interpretTarlaCookSignal } from "../lib/interpretTarlaSignal";
 import { summarizeDayMeals } from "../lib/tarlaDayPlanner";
-import { planMeal } from "../lib/tarlaPlanner";
+import { planMeal, type CalculatedMealPlan } from "../lib/tarlaPlanner";
+import type { CalculatedDayPlan } from "../lib/tarlaDayPlanner";
 import {
   composeCookInstruction,
   composeDayCookInstruction,
@@ -13,6 +14,12 @@ import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
 import { getMessageTransport } from "./messageTransport";
+import {
+  createExecutionException,
+  ensureEvidenceRecord,
+  markTaskComplete,
+  recordExecutionEvent,
+} from "./executionSupport";
 import {
   activateDayPlanHistory,
   insertDayPlanFromMeals,
@@ -175,6 +182,15 @@ export const ingestCookSignal = mutation({
       runId: run._id,
       matched: true,
     });
+    await recordExecutionEvent(ctx, {
+      eventKey: `${signalId}:reply_received`,
+      householdId: plan.householdId,
+      runId: run._id,
+      taskType: run.taskType,
+      eventName: "reply_received",
+      agent: "tarla",
+      outcome: args.signalType,
+    });
     await completeLatestWaitingStep(
       ctx,
       run._id,
@@ -264,6 +280,41 @@ export const ingestCookSignal = mutation({
 
       const eaterMemberIds = plan.memberNutrition.map((item) => item.memberId);
       const planning = await loadPlanningContext(ctx, plan.householdId, eaterMemberIds);
+      if (planning.unstructuredRules.length > 0) {
+        await ctx.db.patch(execution._id, {
+          status: "unresolved",
+          userEscalationRequired: true,
+          unavailableIngredientKeys: [
+            ...new Set([...execution.unavailableIngredientKeys, interpretation.ingredientKey]),
+          ],
+          updatedAt: Date.now(),
+        });
+        const profile = await ctx.db
+          .query("betaUserProfiles")
+          .withIndex("by_household", (q) => q.eq("householdId", plan.householdId))
+          .unique();
+        await createExecutionException(ctx, {
+          householdId: plan.householdId,
+          runId: run._id,
+          agent: "tarla",
+          taskType: run.taskType,
+          tarlaExecutionId: execution._id,
+          sourceMemberId: endpoint.memberId,
+          riskClass: "medium",
+          policyCode: "UNSTRUCTURED_FOOD_RULE_REQUIRES_REVIEW",
+          rawRequest: args.rawContent,
+          proposedAction: "Review the saved food rule before changing this meal.",
+          status: "needs_review",
+          requiredApproverMemberId: profile?.memberId,
+        });
+        return {
+          signalId,
+          matched: true,
+          executionId: execution._id,
+          state: "unresolved",
+          userEscalationRequired: true,
+        };
+      }
       let replacement;
       try {
         replacement = planMeal({
@@ -320,6 +371,19 @@ export const ingestCookSignal = mutation({
         result: replacement,
       });
       await ctx.db.patch(plan._id, { status: "superseded", updatedAt: Date.now() });
+      const exceptionId = await createExecutionException(ctx, {
+        householdId: plan.householdId,
+        runId: run._id,
+        agent: "tarla",
+        taskType: run.taskType,
+        tarlaExecutionId: execution._id,
+        sourceMemberId: endpoint.memberId,
+        riskClass: "low",
+        policyCode: "INGREDIENT_UNAVAILABLE_SUPPORTED_SUBSTITUTION",
+        rawRequest: args.rawContent,
+        proposedAction: `Replace the affected meal because ${interpretation.ingredientName} is unavailable.`,
+        status: "auto_resolved",
+      });
       await addCompletedStep(
         ctx,
         run._id,
@@ -327,6 +391,7 @@ export const ingestCookSignal = mutation({
         "substitute_or_replan",
         `Replace ${affectedItem.recipeName} after the cook reported ${interpretation.ingredientName} unavailable`,
         `Selected ${replacement.templateName} without interrupting the household user`,
+        { component: "tarla", usageStatus: "not_applicable", exceptionId },
       );
       await addCompletedStep(
         ctx,
@@ -384,6 +449,8 @@ export const ingestCookSignal = mutation({
           .map((profile) => ({ memberName: profile.name, note: profile.cookNotes! })),
         importantRestrictions: restrictions,
         preferredLanguage: endpoint.preferredLanguage ?? cook.languagePreference,
+        cookName: cook.preferredSalutation ?? cook.name,
+        relationshipType: execution.recipientClass,
         revisedBecause: `${interpretation.ingredientName} is unavailable`,
       });
       const sent = await getMessageTransport(ctx).sendMessage({
@@ -400,6 +467,7 @@ export const ingestCookSignal = mutation({
           tarlaExecutionId: String(execution._id),
           mealPlanId: String(revisedPlanId),
           purpose: "revised_cook_instruction",
+          recipientClass: execution.recipientClass ?? "hired_cook",
         },
       });
       const responseWindowMs = Math.max(
@@ -422,6 +490,7 @@ export const ingestCookSignal = mutation({
           ]),
         ],
         userEscalationRequired: false,
+        planVersion: plan.version + 1,
         updatedAt: Date.now(),
       });
       await addCompletedStep(
@@ -431,6 +500,14 @@ export const ingestCookSignal = mutation({
         "send_revised_instruction",
         "Send one constraint-safe revised instruction through the shared transport",
         "Provider-neutral transport recorded the revised cook instruction request",
+        {
+          component: "transport",
+          tool: "whatsapp",
+          provider: sent.provider,
+          usageStatus: "not_applicable",
+          outcome: sent.providerStatus,
+          exceptionId,
+        },
       );
       await addWaitingStep(
         ctx,
@@ -444,6 +521,22 @@ export const ingestCookSignal = mutation({
         outputSummary:
           "Missing ingredient resolved; revised instruction submitted without user interruption",
         updatedAt: Date.now(),
+      });
+      await recordExecutionEvent(ctx, {
+        eventKey: `${exceptionId}:resolved`,
+        householdId: plan.householdId,
+        runId: run._id,
+        taskType: run.taskType,
+        eventName: "exception_resolved",
+        agent: "tarla",
+        outcome: "auto_resolved",
+      });
+      await ensureEvidenceRecord(ctx, {
+        run,
+        surface: transportSurface(endpoint),
+        recipientClass: execution.recipientClass ?? "hired_cook",
+        outcome: "AUTONOMOUS_SUBSTITUTION_PENDING_ACKNOWLEDGEMENT",
+        primaryRubricClaim: "Real output on a real surface",
       });
       const timeoutJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
         expectedResponseBy,
@@ -481,6 +574,13 @@ export const ingestCookSignal = mutation({
         run,
         "Cook acknowledged the instruction; execution coordination completed without claiming meal completion",
       );
+      await markTaskComplete(ctx, {
+        run,
+        agent: "tarla",
+        outcome: "COOK_ACKNOWLEDGED",
+        recipientClass: execution.recipientClass ?? "hired_cook",
+        surface: transportSurface(endpoint),
+      });
       return {
         signalId,
         matched: true,
@@ -629,6 +729,15 @@ async function handleDayExecutionSignal(
     runId: run._id,
     matched: true,
   });
+  await recordExecutionEvent(ctx, {
+    eventKey: `${signalId}:reply_received`,
+    householdId: dayPlan.householdId,
+    runId: run._id,
+    taskType: run.taskType,
+    eventName: "reply_received",
+    agent: "tarla",
+    outcome: args.signalType,
+  });
   await completeLatestWaitingStep(
     ctx,
     run._id,
@@ -685,8 +794,12 @@ async function handleDayExecutionSignal(
     );
     const currentMeals = await loadDayMeals(ctx, dayPlan._id);
     const lockedMealSlots = new Set(normalized.execution.lockedMealSlots ?? []);
+    const visitMealSlots = new Set(
+      normalized.execution.assignedMealSlots ?? visit.mealSlots,
+    );
     const affectedMeals = currentMeals.filter(
       (meal) =>
+        visitMealSlots.has(meal.join.mealSlot) &&
         !lockedMealSlots.has(meal.join.mealSlot) &&
         meal.calculated.plan.ingredientKeys.includes(
           interpretation.ingredientKey,
@@ -700,6 +813,8 @@ async function handleDayExecutionSignal(
         order,
         interpretation.ingredientKey,
         "The reported item did not affect an unlocked meal in this visit",
+        args.rawContent,
+        normalized.endpoint.memberId,
       ).then((result) => ({ signalId, matched: true, ...result }));
     }
 
@@ -714,8 +829,21 @@ async function handleDayExecutionSignal(
     const protectedTemplates = currentMeals
       .filter((meal) => !affectedSlots.has(meal.join.mealSlot))
       .map((meal) => meal.calculated.plan.templateId);
+    const originalMealsBySlot = new Map(
+      currentMeals.map((meal) => [meal.join.mealSlot, meal.calculated]),
+    );
     const revisedMeals = [];
     const mealPlanIds = new Map<string, Id<"tarlaMealPlans">>();
+    const changedMealsForReason: Array<{
+      mealSlot: string;
+      reasonType: "direct_substitution" | "secondary_adjustment";
+      reasonText: string;
+      recipeLine: string;
+      nutritionBeforeAfter?: {
+        before: NutritionPoint;
+        after: NutritionPoint;
+      };
+    }> = [];
     try {
       for (const current of currentMeals) {
         if (!affectedSlots.has(current.join.mealSlot)) {
@@ -745,6 +873,38 @@ async function handleDayExecutionSignal(
           ],
           inventory: planning.inventory,
           enforceNutritionTargets: false,
+        });
+        const originalMeal = originalMealsBySlot.get(current.join.mealSlot);
+        if (!originalMeal) throw new Error("Original meal snapshot was missing");
+        const beforeNutrition = {
+          caloriesKcal: roundNutrition(originalMeal.plan.totalNutrition.caloriesKcal),
+          proteinG: roundNutrition(originalMeal.plan.totalNutrition.proteinG),
+        };
+        const afterNutrition = {
+          caloriesKcal: roundNutrition(replacement.totalNutrition.caloriesKcal),
+          proteinG: roundNutrition(replacement.totalNutrition.proteinG),
+        };
+        const reasonType = originalMeal.plan.ingredientKeys.includes(
+          interpretation.ingredientKey,
+        )
+          ? "direct_substitution"
+          : "secondary_adjustment";
+        const directReplacement = reasonType === "direct_substitution";
+        const changedByNutrition = hasNutritionDelta(beforeNutrition, afterNutrition, 0.01);
+        changedMealsForReason.push({
+          mealSlot: current.join.mealSlot,
+          reasonType,
+          reasonText:
+            directReplacement
+              ? `${interpretation.ingredientName} was unavailable and directly replaced this dish`
+              : "Adjusted this dish after substitution to keep calorie/protein targets closer to target ranges",
+          recipeLine: `${originalMeal.plan.templateName} -> ${replacement.templateName}`,
+          nutritionBeforeAfter: changedByNutrition
+            ? {
+                before: beforeNutrition,
+                after: afterNutrition,
+              }
+            : undefined,
         });
         const replacementPlanId = await insertMealPlan(ctx, {
           householdId: dayPlan.householdId,
@@ -778,10 +938,16 @@ async function handleDayExecutionSignal(
         order,
         interpretation.ingredientKey,
         "No valid replacement satisfied all known household constraints",
+        args.rawContent,
+        normalized.endpoint.memberId,
       ).then((result) => ({ signalId, matched: true, ...result }));
     }
 
     const result = summarizeDayMeals(revisedMeals, planning.members);
+    const { nutritionBeforeAfter, fallbackNotes } = reconcileDayTotalsSummary(
+      dayPlan,
+      result,
+    );
     const revisedDayPlanId = await insertDayPlanFromMeals(ctx, {
       householdId: dayPlan.householdId,
       requestedByMemberId: dayPlan.requestedByMemberId,
@@ -799,6 +965,19 @@ async function handleDayExecutionSignal(
       status: "superseded",
       updatedAt: Date.now(),
     });
+    const exceptionId = await createExecutionException(ctx, {
+      householdId: dayPlan.householdId,
+      runId: run._id,
+      agent: "tarla",
+      taskType: run.taskType,
+      tarlaExecutionId: normalized.execution._id,
+      sourceMemberId: normalized.endpoint.memberId,
+      riskClass: "low",
+      policyCode: "INGREDIENT_UNAVAILABLE_SUPPORTED_SUBSTITUTION",
+      rawRequest: args.rawContent,
+      proposedAction: `Replace the affected meal because ${interpretation.ingredientName} is unavailable.`,
+      status: "auto_resolved",
+    });
     const revisedDayPlan = await ctx.db.get(revisedDayPlanId);
     if (!revisedDayPlan) throw new Error("Revised full-day plan was not found");
     await activateDayPlanHistory(ctx, revisedDayPlan);
@@ -809,6 +988,7 @@ async function handleDayExecutionSignal(
       "substitute_or_replan",
       `Replace ${interpretation.ingredientName} only in affected unlocked meals`,
       `Replanned ${affectedMeals.map((meal) => meal.join.mealSlot).join(", ")} without interrupting the household user`,
+      { component: "tarla", usageStatus: "not_applicable", exceptionId },
     );
     await addCompletedStep(
       ctx,
@@ -827,8 +1007,21 @@ async function handleDayExecutionSignal(
       `Added ${interpretation.ingredientName} to shopping-needed`,
     );
     const visitMeals = result.meals.filter((meal) =>
-      visit.mealSlots.includes(meal.mealSlot),
+      (normalized.execution.assignedMealSlots ?? visit.mealSlots).includes(meal.mealSlot),
     );
+    if (planning.unstructuredRules.length > 0) {
+      return leaveDayExecutionUnresolved(
+        ctx,
+        normalized.execution,
+        run,
+        order,
+        interpretation.ingredientKey,
+        "A saved food rule is not structured enough to enforce automatically",
+        args.rawContent,
+        normalized.endpoint.memberId,
+      ).then((result) => ({ signalId, matched: true, ...result }));
+    }
+    const cookState = await ctx.db.get(visit.cookStateId);
     const revisedInstruction = composeDayCookInstruction({
       visitLabel: visit.label,
       targetDate: dayPlan.targetDate,
@@ -841,6 +1034,13 @@ async function handleDayExecutionSignal(
           (allergy) => `${member.name}: no ${allergy.replaceAll("_", " ")}`,
         ),
       ),
+      cookName: cook.preferredSalutation ?? cook.name,
+      preferredLanguage:
+        normalized.endpoint.preferredLanguage ?? cook.languagePreference,
+      relationshipType: cookState?.relationshipType,
+      changedMeals: changedMealsForReason,
+      nutritionBeforeAfter,
+      fallbackNotes,
       revisedBecause: `${interpretation.ingredientName} is unavailable`,
     });
     const sent = await getMessageTransport(ctx).sendMessage({
@@ -858,6 +1058,7 @@ async function handleDayExecutionSignal(
         dayPlanId: String(revisedDayPlanId),
         cookVisitId: String(visit._id),
         purpose: "revised_day_cook_instruction",
+        recipientClass: normalized.execution.recipientClass ?? "hired_cook",
       },
     });
     const responseWindowMs = Math.max(
@@ -880,6 +1081,7 @@ async function handleDayExecutionSignal(
         ]),
       ],
       userEscalationRequired: false,
+      planVersion: dayPlan.version + 1,
       updatedAt: Date.now(),
     });
     await addCompletedStep(
@@ -889,6 +1091,14 @@ async function handleDayExecutionSignal(
       "send_revised_instruction",
       "Send the visit's revised instruction through the shared transport",
       "Provider-neutral transport recorded the revised full-day cook instruction request",
+      {
+        component: "transport",
+        tool: "whatsapp",
+        provider: sent.provider,
+        usageStatus: "not_applicable",
+        outcome: sent.providerStatus,
+        exceptionId,
+      },
     );
     await addWaitingStep(
       ctx,
@@ -902,6 +1112,22 @@ async function handleDayExecutionSignal(
       outputSummary:
         "Missing ingredient resolved; full-day totals updated and revised instruction submitted",
       updatedAt: Date.now(),
+    });
+    await recordExecutionEvent(ctx, {
+      eventKey: `${exceptionId}:resolved`,
+      householdId: dayPlan.householdId,
+      runId: run._id,
+      taskType: run.taskType,
+      eventName: "exception_resolved",
+      agent: "tarla",
+      outcome: "auto_resolved",
+    });
+    await ensureEvidenceRecord(ctx, {
+      run,
+      surface: transportSurface(normalized.endpoint),
+      recipientClass: normalized.execution.recipientClass ?? "hired_cook",
+      outcome: "AUTONOMOUS_SUBSTITUTION_PENDING_ACKNOWLEDGEMENT",
+      primaryRubricClaim: "Real output on a real surface",
     });
     const timeoutJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
       expectedResponseBy,
@@ -944,6 +1170,13 @@ async function handleDayExecutionSignal(
       run,
       "Cook acknowledged the full-day visit instruction without claiming meal completion",
     );
+    await markTaskComplete(ctx, {
+      run,
+      agent: "tarla",
+      outcome: "COOK_ACKNOWLEDGED",
+      recipientClass: normalized.execution.recipientClass ?? "hired_cook",
+      surface: transportSurface(normalized.endpoint),
+    });
     return {
       signalId,
       matched: true,
@@ -986,7 +1219,27 @@ async function leaveDayExecutionUnresolved(
   order: number,
   ingredientKey: string,
   reason: string,
+  rawRequest: string,
+  sourceMemberId: Id<"members">,
 ) {
+  const profile = await ctx.db
+    .query("betaUserProfiles")
+    .withIndex("by_household", (q) => q.eq("householdId", execution.householdId))
+    .unique();
+  const exceptionId = await createExecutionException(ctx, {
+    householdId: execution.householdId,
+    runId: run._id,
+    agent: "tarla",
+    taskType: run.taskType,
+    tarlaExecutionId: execution._id,
+    sourceMemberId,
+    riskClass: "medium",
+    policyCode: "INGREDIENT_EXCEPTION_NEEDS_REVIEW",
+    rawRequest,
+    proposedAction: reason,
+    status: "needs_review",
+    requiredApproverMemberId: profile?.memberId,
+  });
   await ctx.db.patch(execution._id, {
     status: "unresolved",
     userEscalationRequired: true,
@@ -1001,7 +1254,14 @@ async function leaveDayExecutionUnresolved(
     order,
     "wait_for_user_approval",
     reason,
+    { component: "tarla", usageStatus: "not_applicable" },
   );
+  const latest = await ctx.db
+    .query("agentRunSteps")
+    .withIndex("by_run_and_order", (q) => q.eq("runId", run._id))
+    .order("desc")
+    .first();
+  if (latest) await ctx.db.patch(latest._id, { exceptionId });
   await ctx.db.patch(run._id, {
     status: "waiting",
     outputSummary: `${reason}; household-user decision is required`,
@@ -1012,6 +1272,13 @@ async function leaveDayExecutionUnresolved(
     state: "unresolved" as const,
     userEscalationRequired: true,
   };
+}
+
+function transportSurface(endpoint: Doc<"communicationEndpoints">) {
+  const provider = endpoint.providerMetadata?.provider?.toLocaleLowerCase();
+  return provider === "development" || provider === "dev"
+    ? ("development_transport" as const)
+    : ("whatsapp" as const);
 }
 
 async function markIngredientUnavailable(
@@ -1176,4 +1443,210 @@ function requiredText(value: string, label: string, maxLength: number) {
     throw new Error(`${label} must be ${maxLength} characters or fewer`);
   }
   return clean;
+}
+
+type NutritionPoint = { caloriesKcal: number; proteinG: number };
+type NutritionSourceScope = "household";
+type DayTotalsSummary = {
+  nutritionBeforeAfter?: {
+    before: NutritionPoint;
+    after: NutritionPoint;
+    scope: NutritionSourceScope;
+  };
+  fallbackNotes: string[];
+};
+
+function reconcileDayTotalsSummary(
+  originalDayPlan: Doc<"tarlaDayPlans">,
+  revisedDayPlan: CalculatedDayPlan,
+): DayTotalsSummary {
+  const fallbackNotes: string[] = [];
+  const before = extractNutritionFromPlanRecord(
+    {
+      totalNutrition: originalDayPlan.totalNutrition,
+      memberDailyNutrition: originalDayPlan.memberDailyNutrition,
+    },
+    "before",
+    fallbackNotes,
+  );
+  const beforeFallback = before.source === "fallback";
+  const after = extractNutritionFromPlanRecord(
+    revisedDayPlan,
+    "after",
+    fallbackNotes,
+  );
+  if (before.sourceScope && after.sourceScope) {
+    if (before.sourceScope !== after.sourceScope) {
+      const mismatchNotes = [
+        `Skipped before-and-after totals in the revised WhatsApp message because before scope (${before.sourceScope}) and after scope (${after.sourceScope}) do not match.`,
+      ];
+      if (mismatchNotes.length) {
+        fallbackNotes.push(...mismatchNotes);
+        console.log("[tarla] skipped revised-day nutrition totals due scope mismatch", {
+          dayPlanId: String(originalDayPlan._id),
+          scopeMismatch: {
+            before: before.sourceScope,
+            after: after.sourceScope,
+          },
+        });
+      }
+      return { fallbackNotes };
+    }
+  }
+  const afterFallback = after.source === "fallback";
+  const result: DayTotalsSummary = {
+    nutritionBeforeAfter:
+      before.values && after.values
+        ? {
+            before: before.values,
+            after: after.values,
+            scope: before.sourceScope ?? "household",
+          }
+        : undefined,
+    fallbackNotes: [
+      ...fallbackNotes,
+      ...(beforeFallback || afterFallback
+        ? ["Recalculated totals using available nutrition fields to avoid missing values."]
+        : []),
+    ],
+  };
+  if (result.fallbackNotes.length > 0) {
+    console.log(
+      "[tarla] used fallback nutrition source while composing revised-day message",
+      {
+        dayPlanId: String(originalDayPlan._id),
+        fallbackNotes: result.fallbackNotes,
+      },
+    );
+  }
+  return result;
+}
+
+function extractNutritionFromPlanRecord(
+  source: {
+    totalNutrition?: {
+      caloriesKcal?: number;
+      proteinG?: number;
+    };
+    memberDailyNutrition?:
+      | Array<{ total?: { caloriesKcal?: number; proteinG?: number } }>
+      | undefined;
+  },
+  label: "before" | "after",
+  fallbackNotes: string[],
+): {
+  values?: NutritionPoint;
+  source: "direct" | "fallback";
+  sourceScope?: NutritionSourceScope;
+} {
+  const direct = extractNutritionFromTotals(source.totalNutrition);
+  if (direct.values) {
+    return {
+      values: direct.values,
+      source: "direct",
+      sourceScope: "household",
+    };
+  }
+  const fromMembers = extractNutritionFromMembers(source.memberDailyNutrition, fallbackNotes);
+  if (fromMembers.values) {
+    fallbackNotes.push(
+      `Could not read direct ${label} total calories/protein from plan totals; used member totals fallback.`,
+    );
+    return {
+      values: fromMembers.values,
+      source: "fallback",
+      sourceScope: "household",
+    };
+  }
+  fallbackNotes.push(
+    `Could not read ${label} total calories/protein from plan or member records; values were omitted from the update message.`,
+  );
+  return { source: "fallback" };
+}
+
+function extractNutritionFromTotals(
+  totals: {
+    caloriesKcal?: number;
+    proteinG?: number;
+  } | undefined,
+): { values?: NutritionPoint; source: "direct" | "fallback" } {
+  const caloriesKcal = totals?.caloriesKcal;
+  const proteinG = totals?.proteinG;
+  if (
+    caloriesKcal !== undefined &&
+    proteinG !== undefined &&
+    Number.isFinite(caloriesKcal) &&
+    Number.isFinite(proteinG)
+  ) {
+    return { values: { caloriesKcal: roundNutrition(caloriesKcal), proteinG: roundNutrition(proteinG) }, source: "direct" };
+  }
+  return { source: "fallback" };
+}
+
+function extractNutritionFromMembers(
+  members:
+    | Array<{ total?: { caloriesKcal?: number; proteinG?: number } }>
+    | undefined,
+  fallbackNotes: string[],
+): { values?: NutritionPoint; source: "direct" | "fallback" } {
+  if (!members?.length) return { source: "fallback" };
+  const totals = members.reduce(
+    (acc, member) => {
+      const mealTotal = member.total;
+      acc.caloriesKcal += mealTotal?.caloriesKcal ?? 0;
+      acc.proteinG += mealTotal?.proteinG ?? 0;
+      return acc;
+    },
+    { caloriesKcal: 0, proteinG: 0 },
+  );
+  const hasData = members.every(
+    (member) =>
+      Number.isFinite(member.total?.caloriesKcal) &&
+      Number.isFinite(member.total?.proteinG),
+  );
+  if (!hasData) return { source: "fallback" };
+  fallbackNotes.push(
+    "Used member totals as a fallback for daily nutrition because direct totals were unavailable.",
+  );
+  return {
+    values: {
+      caloriesKcal: roundNutrition(totals.caloriesKcal),
+      proteinG: roundNutrition(totals.proteinG),
+    },
+    source: "fallback",
+  };
+}
+
+function roundNutrition(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function isMealPlanDifferent(
+  before: CalculatedMealPlan,
+  after: CalculatedMealPlan,
+) {
+  if (before.templateId !== after.templateId) return true;
+  if (before.totalServingEquivalents !== after.totalServingEquivalents) return true;
+  if (before.items.length !== after.items.length) return true;
+  if (!sameSortedIngredientList(before.ingredientKeys, after.ingredientKeys))
+    return true;
+  return false;
+}
+
+function hasNutritionDelta(
+  before: NutritionPoint,
+  after: NutritionPoint,
+  minDelta: number,
+) {
+  return (
+    Math.abs(before.caloriesKcal - after.caloriesKcal) >= minDelta ||
+    Math.abs(before.proteinG - after.proteinG) >= minDelta
+  );
+}
+
+function sameSortedIngredientList(left: string[], right: string[]) {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((ingredient, index) => sortedRight[index] === ingredient);
 }

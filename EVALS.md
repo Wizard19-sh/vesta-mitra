@@ -27,6 +27,7 @@ This document records product eval behavior. GrowthX row allocation, scoring cla
 | W4 Mitra Meta round trip | **VERIFIED PASS — REAL OUTPUT** | Scheduled Mitra message sent through Meta, real reply returned through signed webhook, raw reply and interpretation persisted, task/run completed |
 | W4 Tarla Meta exception loop | **VERIFIED PASS — REAL OUTPUT** | Scheduled cook instruction sent through Meta, real missing-ingredient reply ingested, deterministic replan/nutrition/shopping update, second real message received |
 | M5 local product checks | **VERIFIED PASS — 17/17 LOCAL ONLY** | Product-language, consent wiring, landing proposition, development-transport disclosure, cook-output formatting, navigation safety, existing-setup hydration/update wiring, founder-default safety, and latency-format checks; not final visual acceptance |
+| M2 non-live execution gate | **VERIFIED PASS — 39/39 + browser 1/1** | Synthetic development execution for Mitra routing/self-report/approval and Tarla cook selection/substitution; evidence, trace, analytics, consumer, mobile, and admin inspection; no real M2 message sent |
 
 The real W4 checks used a controlled development recipient. Phone numbers, credentials, provider message IDs, and live-state evidence are intentionally not stored in tracked fixtures or this document.
 
@@ -39,6 +40,8 @@ npm run verify:w3
 npm run verify:w3.1
 npm run verify:w4
 npm run verify:m5
+npm run verify:m2
+npm run verify:m2:browser
 ```
 
 The W1-W3.1 scripts require a Convex development deployment and create isolated test data. W2 and W3.1 deliberately wait for Convex scheduling rather than invoking the send path manually.
@@ -226,9 +229,27 @@ Accepted evidence:
 | Development transport | Retained for repeatable tests |
 | Twilio adapter | Retained; not the active real W4 provider |
 
+## M2 named evaluation set
+
+**Status: VERIFIED PASS — 39/39 deterministic/source checks and 1/1 synthetic browser execution**
+
+The tracked `m2_real_household_execution` set covers:
+
+- Mitra direct, caretaker, and both-mode low-chatter routing;
+- self-report completion, ambiguity, reaction safety, no-response behavior, and recipient acknowledgement;
+- medicine-reminder stop requests, pending approval, approval application, rejection, and unchanged pre-decision state;
+- active versus expired context;
+- Tarla cook selection by visit responsibility, hired-cook/family-cook tone, cumulative household quantities, and latest-plan version;
+- bounded missing-ingredient handling, restriction and unsupported-rule review paths, shopping-needed, and zero primary-user intervention for an allowed substitution;
+- requested/accepted/delivered/failed state distinctions and raw-before-interpretation ordering;
+- linked trace metadata, honest missing usage data, one-claim evidence records, successful-task counting, and primary-user-intervention counting;
+- consumer dashboard approval/handled/shopping states and a household-scoped run inspection at desktop and 390px.
+
+The M2 browser suite uses synthetic Convex development endpoints only. It is not a real-surface WhatsApp acceptance test. Real Mitra and Tarla M2 tests remain gated by explicit owner approval.
+
 ## Planned evaluation program
 
-Every row below is **PLANNED**. None is claimed to pass.
+Rows not covered by the named M2 set remain **PLANNED**. A local M2 pass does not make a real-surface or production claim.
 
 ### M5 acceptance gap
 
@@ -238,31 +259,31 @@ After the Convex development function mismatch was repaired, the user completed 
 | --- | --- | --- |
 | Context retrieval across runs | A later task retrieves the correct household/member context without copying stale specialist state | **PLANNED** |
 | Provenance classes | UI/API clearly distinguishes user-confirmed fact, candidate extraction, agent inference, and self-report | **PLANNED** |
-| Temporary memory expiry | “No paneer this week” affects only the valid period and expires predictably | **PLANNED** |
+| Temporary memory expiry | “No paneer this week” affects only the valid period and expires predictably | **PASS — M2 deterministic** |
 | Correction history | A correction supersedes prior memory while retaining an inspectable history and source | **PLANNED** |
-| Medication self-report safety | All channels and surfaces say “reported” rather than claiming independent medication adherence | **PLANNED** |
-| Risk-level action | Low-risk change logs normally; medium follows configured notify/confirm rule; high-risk change cannot activate without explicit confirmation | **PLANNED** |
-| Exception auto-resolve | Known safe bounded exception resolves and remains observable | **PLANNED** |
+| Medication self-report safety | All channels and surfaces say “reported” rather than claiming independent medication adherence | **PASS — M2 + W2 development** |
+| Risk-level action | Low-risk change logs normally; medium follows configured notify/confirm rule; high-risk change cannot activate without explicit confirmation | **PASS — bounded M2 rules** |
+| Exception auto-resolve | Known safe bounded exception resolves and remains observable | **PASS — M2 synthetic development** |
 | Exception resolve + notify | A safe material change resolves and produces one clear primary-user notification | **PLANNED** |
-| Exception asks primary user | Conflicting/unknown context pauses without guessing | **PLANNED** |
+| Exception asks primary user | Conflicting/unknown context pauses without guessing | **PASS — M2 supported review paths** |
 | Admin/human review | Unsafe, unsupported, or repeated failure enters a controlled review queue | **PLANNED** |
 | Human resolution feedback | Review resolution updates appropriate memory and creates/extends a named eval without making unsupported permanent preference | **PLANNED** |
 | Ambiguous Aevia routing | One shared channel with multiple possible tasks asks a safe clarification and completes neither task falsely | **PLANNED** |
-| Relationship-aware Mitra language | Salutation, relationship, respect, preferred language, and learned family vocabulary remain coherent across turns | **PLANNED** |
+| Relationship-aware Mitra language | Salutation, relationship, respect, preferred language, and learned family vocabulary remain coherent across turns | **PARTIAL — bounded M2 templates; learned vocabulary remains planned** |
 | Mitra familiarity progression | Day-0 task-led tone changes only after genuine senior engagement | **PLANNED** |
 | Anti-AI-slop | Messages avoid generic praise, fake empathy, repeated introductions, engineering language, and unnecessary length | **PLANNED** |
 | Cuisine/cultural appropriateness | Plan respects explicit cuisine and household context without stereotypes | **PLANNED** |
 | Indian meal completeness | Where context expects it, a day includes coherent main/protein/staple/accompaniment combinations | **PLANNED** |
-| Cook-friendly quantities | Cooking instruction uses cumulative pieces/rotis/katoris/cups/spoons and never exposes serving equivalents | **PLANNED** |
-| Cooking-person role tone | Hired cook, family cook, and primary-user cooking flows use distinct appropriate language | **PLANNED** |
+| Cook-friendly quantities | Cooking instruction uses cumulative pieces/rotis/katoris/cups/spoons and never exposes serving equivalents | **PASS — M2 + W3 development** |
+| Cooking-person role tone | Hired cook, family cook, and primary-user cooking flows use distinct appropriate language | **PASS — bounded M2 templates** |
 | User-feedback learning | An explicit correction changes the next eligible plan and shows why | **PLANNED** |
-| Latest-approved-plan semantics | Multiple edits before a scheduled visit always produce exactly the latest approved instruction | **PLANNED** |
+| Latest-approved-plan semantics | Multiple edits before a scheduled visit always produce exactly the latest approved instruction | **PASS — W3.1 + M2 development** |
 | Duplicate prevention | Scheduler retries and duplicate webhooks do not duplicate actions or complete tasks twice | **PLANNED** |
 | Provider authentication failure | Task/run fails visibly with no false completion and no credential leakage | **PLANNED** |
 | Invalid/unready recipient | Real send is blocked before provider submission | **PLANNED** |
 | Provider idempotency | Retries reuse or reject the same logical outbound attempt as designed | **PLANNED** |
-| Provider callback ordering | Delivered/read/failure callbacks in unusual order preserve a correct monotonic state | **PLANNED** |
-| Primary-user intervention rate | Event model counts necessary intervention per successfully completed task without counting passive views as intervention | **PLANNED** |
+| Provider callback ordering | Delivered/read/failure callbacks in unusual order preserve a correct monotonic state | **PASS — W4 + M2 deterministic** |
+| Primary-user intervention rate | Event model counts necessary intervention per successfully completed task without counting passive views as intervention | **PASS — M2 synthetic development ledger** |
 | Beta consent versioning | Activation requires accepted Terms/Privacy version and stores actor/time/version | **PLANNED** |
 | Sensitive-data masking | Admin fields are masked by default and reveal is authorized and auditable | **PLANNED** |
 

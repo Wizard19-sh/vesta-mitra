@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
-import { useQuery } from "convex/react";
+import { useEffect, useRef, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { useDeviceCredential } from "../../lib/aeviaSession";
 import { useProductAnalytics } from "../../lib/productAnalytics";
 import { SessionUnavailable } from "../SessionUnavailable";
@@ -15,6 +16,9 @@ export default function DashboardPage() {
   const ownerKey = credentialState.status === "ready" ? credentialState.credential : undefined;
   const data = useQuery(api.m5.getDashboard, ownerKey ? { ownerKey } : "skip");
   const track = useProductAnalytics();
+  const decideException = useMutation(api.executionExceptions.decide);
+  const [decisionPending, setDecisionPending] = useState<string>();
+  const [decisionError, setDecisionError] = useState<string>();
   const tracked = useRef(false);
 
   useEffect(() => {
@@ -37,76 +41,98 @@ export default function DashboardPage() {
   const latestPlan = data.dayPlans[0];
   const failedRuns = data.runs.filter((run) => run.status === "failed");
   const memberMap = new Map(data.members.map((member) => [String(member._id), member]));
-  const activeMitraMembers = new Set(activeRoutines.map((routine) => String(routine.memberId)));
-  const tarlaMemberIds = new Set(data.tarlaProfiles.map((profile) => String(profile.memberId)));
-  const memories = visibleMemories(data);
+  const pendingExceptions = data.exceptions.filter((item) =>
+    ["pending_approval", "needs_review"].includes(item.status),
+  );
+  const handledItems = recentlyHandled(data, memberMap);
+
+  async function decide(exceptionId: string, decision: "approve" | "reject") {
+    if (!ownerKey) return;
+    setDecisionPending(exceptionId);
+    setDecisionError(undefined);
+    try {
+      await decideException({ ownerKey, exceptionId: exceptionId as Id<"executionExceptions">, decision });
+    } catch (error) {
+      setDecisionError(error instanceof Error ? error.message : "That decision could not be saved. Please try again.");
+    } finally {
+      setDecisionPending(undefined);
+    }
+  }
 
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
         <Link href="/" className={styles.brand}>Aevia</Link>
-        <nav><a href="#today">Home</a><Link href="/onboarding?edit=mitra">Mitra</Link><Link href="/onboarding?edit=tarla">Tarla</Link><Link href="/onboarding?edit=household">Household</Link></nav>
+        <nav><a href="#home">Home</a><a href="#needs-you">Needs you</a></nav>
         <p>Closed beta</p>
       </header>
 
       <section className={styles.welcome} id="today">
         <p className={styles.eyebrow}>{data.household.name}</p>
-        <h1>Your home, today</h1>
-        <p>Aevia is taking care of the follow-through.</p>
+        <h1 id="home">Home</h1>
+        <p>Your household specialist actions and replies.</p>
       </section>
 
       <section className={styles.assistants}>
-        <div className={styles.sectionTitle}><p>Taking care of</p><span>{activeRoutines.length + (latestPlan ? 1 : 0)} saved</span></div>
+        <div className={styles.sectionTitle}><p>Mitra and Tarla</p><span>{activeRoutines.length + (latestPlan ? 1 : 0)} active views</span></div>
         <div className={styles.assistantGrid}>
           {activeRoutines.slice(0, 3).map((routine) => {
             const member = routine.memberId ? memberMap.get(String(routine.memberId)) : undefined;
             const latest = data.latestInstances.find((item) => item.routineId === routine._id)?.instance;
             return <article key={routine._id}><div className={styles.assistantIcon}>M</div><div><span>Mitra</span><h2>{member ? `${member.preferredSalutation || member.name}'s ${routine.label ?? "routine"}` : routine.label}</h2><p>{routine.nextOccurrenceAt ? formatTimestamp(routine.nextOccurrenceAt, data.household.timezone) : "Schedule saved"}</p>{routine.notes && <small>{routine.notes}</small>}</div><strong>{latest ? honestMitraState(latest.status, member?.preferredSalutation || member?.name) : "Scheduled"}</strong></article>;
           })}
-          {latestPlan && <article><div className={[styles.assistantIcon, styles.tarlaIcon].join(" ")}>T</div><div><span>Tarla</span><h2>Meals for {formatDate(latestPlan.targetDate)}</h2><p>{latestPlan.mealSlots.join(" · ")}</p></div><strong>{latestPlan.status === "scheduled" || latestPlan.status === "approved" ? "Plan approved" : friendlyState(latestPlan.status)}</strong></article>}
-          {!activeRoutines.length && !latestPlan && <article className={styles.addCard}><div className={styles.assistantIcon}>A</div><div><span>Aevia</span><h2>No active work yet</h2><p>Your saved setup is ready. Work will appear here when it is scheduled.</p></div></article>}
+          {latestPlan && <article><div className={[styles.assistantIcon, styles.tarlaIcon].join(" ")}>T</div><div><span>Tarla</span><h2>Meals for {formatDate(latestPlan.targetDate)}</h2><p>{latestPlan.mealSlots.join(" · ")}</p></div><strong>{latestPlan.status === "scheduled" || latestPlan.status === "approved" ? "Plan sent" : friendlyState(latestPlan.status)}</strong></article>}
+          {!activeRoutines.length && !latestPlan && <article className={styles.addCard}><div className={styles.assistantIcon}>A</div><div><span>Aevia</span><h2>No active work yet</h2><p>Your setup is ready. Start from onboarding to add a first job.</p></div></article>}
         </div>
       </section>
 
       <section className={styles.nextGrid}>
-        <article className={styles.nextCard}><p className={styles.eyebrow}>Needs you</p>{failedRuns.length ? <><h2>{failedRuns.length} item{failedRuns.length === 1 ? "" : "s"} need review</h2><p>Aevia could not finish these, so they have not been marked complete.</p></> : <><h2>Nothing right now.</h2><p>Aevia will ask when something needs your decision.</p></>}</article>
+        <article className={styles.nextCard} id="needs-you">
+          <p className={styles.eyebrow}>Needs you</p>
+          {pendingExceptions.length ? <div className={styles.requestList}>{pendingExceptions.map((item) => { const source = item.sourceMemberId ? memberMap.get(String(item.sourceMemberId)) : undefined; const medicineChange = item.policyCode === "MEDICINE_REMINDER_CHANGE_REQUIRES_APPROVAL"; return <section key={item._id} className={styles.request}><h2>{source?.preferredSalutation || source?.name || "Someone in your household"} requested a change</h2><p>{item.proposedAction}</p><small>{medicineChange ? "Aevia paused this reminder until you decide." : "Aevia needs your approval before continuing."}</small>{item.status === "pending_approval" && <div className={styles.requestActions}><button type="button" disabled={decisionPending === String(item._id)} onClick={() => void decide(String(item._id), "approve")}>{medicineChange ? "Approve stopping reminder" : "Approve"}</button><button type="button" disabled={decisionPending === String(item._id)} onClick={() => void decide(String(item._id), "reject")}>{medicineChange ? "Keep reminder" : "Reject"}</button></div>}</section>; })}{decisionError && <p role="alert" className={styles.decisionError}>{decisionError}</p>}</div> : failedRuns.length ? <><h2>{failedRuns.length} item{failedRuns.length === 1 ? "" : "s"} need your review</h2><p>Aevia could not complete these runs.</p></> : <><h2>Nothing right now.</h2><p>Only decisions that need your action appear here.</p></>}
+        </article>
         <article className={styles.nextCard}><p className={styles.eyebrow}>Coming up</p>{activeRoutines[0]?.nextOccurrenceAt ? <><h2>{activeRoutines[0].label}</h2><p>{formatTimestamp(activeRoutines[0].nextOccurrenceAt, data.household.timezone)}</p></> : latestPlan ? <><h2>Next meal plan</h2><p>{formatDate(latestPlan.targetDate)}</p></> : <><h2>No scheduled work</h2><p>Add or edit a specialist when you are ready.</p></>}</article>
       </section>
 
-      <div className={styles.lowerGrid}>
-        <section className={styles.activity}>
-          <div className={styles.sectionTitle}><p>Household at a glance</p><Link href="/onboarding?edit=household">Manage household</Link></div>
-          <div className={styles.householdList}>{data.members.filter((member) => member.memberKind !== "external").map((member) => <article key={member._id}><div><strong>{member.name}</strong><p>{member.relationship ?? member.role} · {capitalize(member.lifeStage ?? "adult")}</p></div><span>{activeMitraMembers.has(String(member._id)) ? "Mitra active" : tarlaMemberIds.has(String(member._id)) ? "Tarla meal planning" : member._id === data.primaryMember?._id ? "You" : "Household"}</span></article>)}</div>
-        </section>
-        <aside className={styles.sideColumn}>
-          <section className={styles.exceptionCard}><p className={styles.eyebrow}>Specialists</p><h2>{activeRoutines.length ? `Mitra · ${activeRoutines.length} routine${activeRoutines.length === 1 ? "" : "s"}` : "Mitra · not active"}</h2><Link href="/onboarding?edit=mitra">Edit Mitra</Link><h2>{data.tarlaProfiles.length ? `Tarla · ${data.tarlaProfiles.length} people` : "Tarla · not active"}</h2><Link href="/onboarding?edit=tarla">Edit Tarla</Link></section>
-          <section className={styles.memoryCard}><p className={styles.eyebrow}>What Aevia knows</p><h2>Your shared household context</h2>{memories.length ? <ul>{memories.slice(0, 7).map((item) => <li key={item}>{item}</li>)}</ul> : <p>Context you add during setup will appear here.</p>}<small>This is saved information you can review and correct. Aevia is not claiming it inferred anything else.</small></section>
-        </aside>
-      </div>
+      <section className={[styles.activity, styles.fullActivity].join(" ")} aria-labelledby="handled-title">
+        <div className={styles.sectionTitle}><p id="handled-title">Recently handled</p><span>Only meaningful outcomes appear here</span></div>
+        <div className={styles.activityList}>{handledItems.length ? handledItems.slice(0, 6).map((item) => <article key={item.key}><span className={item.agent === "Mitra" ? styles.mitraDot : styles.tarlaDot}>{item.agent.charAt(0)}</span><div><strong>{item.title}</strong><p>{item.detail}</p></div><time>{item.time ? formatTimestamp(item.time, data.household.timezone) : "Recent"}</time><em>{item.state}</em></article>) : <p className={styles.empty}>Completed household work will appear here.</p>}</div>
+      </section>
+
+      <section className={styles.activity} aria-label="Specialist views">
+        <div className={styles.sectionTitle}><p>Mitra and Tarla views</p><Link href="/onboarding">Edit</Link></div>
+        <div className={styles.activityList}>
+          <article><span className={styles.mitraDot}>M</span><div><strong>Mitra</strong><p>{activeRoutines.length ? `${activeRoutines.length} routine route(s) active.` : "No routine route active yet."}</p></div></article>
+          <article><span className={styles.tarlaDot}>T</span><div><strong>Tarla</strong><p>{latestPlan ? `Plan saved for ${formatDate(latestPlan.targetDate)}.` : "No meal plan route active yet."}</p></div></article>
+        </div>
+      </section>
 
       <footer className={styles.footer}><Link href="/privacy">Privacy</Link><Link href="/terms">Terms</Link><Link href="/beta">Beta status</Link><span>Policies accepted {new Date(data.profile.acceptedAt).toLocaleDateString()}</span></footer>
     </main>
   );
 }
-
-function visibleMemories(data: NonNullable<FunctionReturnType<typeof api.m5.getDashboard>>) {
-  const results: string[] = [];
-  for (const member of data.members) {
-    if (member.preferredSalutation && member.languagePreference && member.role !== "primary user") results.push(`${member.preferredSalutation} prefers ${member.languagePreference}.`);
+function recentlyHandled(
+  data: NonNullable<FunctionReturnType<typeof api.m5.getDashboard>>,
+  memberMap: Map<string, NonNullable<FunctionReturnType<typeof api.m5.getDashboard>>["members"][number]>,
+) {
+  const items: Array<{ key: string; agent: "Mitra" | "Tarla"; title: string; detail: string; state: string; time?: number }> = [];
+  for (const entry of data.latestInstances) {
+    if (!entry.instance?.primaryUserSummary || entry.instance.status === "NEEDS_ATTENTION") continue;
+    const routine = data.routines.find((item) => item._id === entry.routineId);
+    const member = routine?.memberId ? memberMap.get(String(routine.memberId)) : undefined;
+    items.push({ key: String(entry.instance._id), agent: "Mitra", title: entry.instance.primaryUserSummary, detail: member ? `${member.preferredSalutation || member.name} · ${routine?.label ?? "routine"}` : routine?.label ?? "Routine", state: entry.instance.status === "CONFIRMED" ? "Self-reported" : entry.instance.primaryUserSummary.startsWith("You ") ? "Decision saved" : "Not marked done", time: entry.instance.responseAt ?? entry.instance.sentAt });
   }
-  for (const preference of data.preferences) {
-    if (preference.category === "household_context") results.push(preference.value);
-    if (preference.key === "cuisines") results.push(`Household cuisines: ${preference.value}.`);
-    if (preference.key === "hard_restrictions" && preference.value) results.push(`Important food restrictions: ${preference.value}.`);
+  for (const execution of data.executions) {
+    if (!["revised_waiting", "acknowledged"].includes(execution.status)) continue;
+    const cook = memberMap.get(String(execution.cookMemberId));
+    const missing = execution.unavailableIngredientKeys.map((item) => item.replaceAll("_", " ")).join(", ");
+    items.push({ key: String(execution._id), agent: "Tarla", title: execution.status === "revised_waiting" ? `Tarla updated the plan because ${missing || "an ingredient"} was unavailable.` : `${cook?.preferredSalutation || cook?.name || "The cooking person"} acknowledged the meal instruction.`, detail: execution.status === "revised_waiting" ? "The kitchen quantities were updated too." : "This confirms the instruction was received, not that cooking is complete.", state: execution.status === "revised_waiting" ? "Handled" : "Acknowledged", time: execution.updatedAt });
   }
-  for (const rule of data.tarlaRules) results.push(rule.description);
-  for (const visit of data.cookVisits) results.push(`${visit.label} · ${to12Hour(visit.arrivalTime)}.`);
-  return [...new Set(results)];
+  return items.sort((left, right) => (right.time ?? 0) - (left.time ?? 0));
 }
 
-function to12Hour(value: string) { const [hours, minutes] = value.split(":").map(Number); return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`; }
 function formatTimestamp(value: number, timezone: string) { return new Intl.DateTimeFormat("en-IN", { timeZone: timezone, dateStyle: "medium", timeStyle: "short" }).format(value); }
 function formatDate(value: string) { return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`)); }
 function friendlyState(value: string) { return value.replaceAll("_", " ").toLocaleLowerCase().replace(/^\w/, (letter) => letter.toUpperCase()); }
 function honestMitraState(value: string, name?: string) { if (["CONFIRMED", "OK"].includes(value)) return name ? `${name} said it was done` : "Reported done"; if (value === "NO_RESPONSE") return "No reply"; return friendlyState(value); }
-function capitalize(value: string) { return value.charAt(0).toUpperCase() + value.slice(1); }
+

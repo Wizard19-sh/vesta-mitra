@@ -94,6 +94,18 @@ export async function loadPlanningContext(
       maxOccurrences: rule.maxOccurrences,
       windowDays: rule.windowDays,
     }));
+  const unstructuredRules = rules
+    .filter(
+      (rule) =>
+        rule.active &&
+        rule.ruleType === "custom_days" &&
+        (rule.expiresAt === undefined || rule.expiresAt > now),
+    )
+    .map((rule) => ({
+      id: rule._id,
+      description: rule.description,
+      daysOfWeek: rule.daysOfWeek ?? [],
+    }));
   const plannerHistory: PlannerHistory[] = history
     .filter((entry) => entry.active !== false)
     .map((entry) => ({
@@ -114,6 +126,7 @@ export async function loadPlanningContext(
     memory,
     inventory: plannerInventory,
     profileDocs: profiles.filter((profile) => eaterMemberIds.includes(profile.memberId)),
+    unstructuredRules,
   };
 }
 
@@ -249,6 +262,16 @@ export async function addCompletedStep(
   name: string,
   inputSummary: string,
   outputSummary: string,
+  metadata?: {
+    component?: string;
+    tool?: string;
+    provider?: string;
+    model?: string;
+    usageStatus?: "tracked" | "unavailable" | "not_applicable";
+    outcome?: string;
+    exceptionId?: Id<"executionExceptions">;
+    evidenceRecordId?: Id<"evidenceRecords">;
+  },
 ) {
   const startedAt = Date.now();
   const completedAt = Date.now();
@@ -262,6 +285,7 @@ export async function addCompletedStep(
     latencyMs: completedAt - startedAt,
     inputSummary,
     outputSummary,
+    ...metadata,
     createdAt: startedAt,
     updatedAt: completedAt,
   });
@@ -273,6 +297,12 @@ export async function addWaitingStep(
   order: number,
   name: string,
   inputSummary: string,
+  metadata?: {
+    component?: string;
+    tool?: string;
+    provider?: string;
+    usageStatus?: "tracked" | "unavailable" | "not_applicable";
+  },
 ) {
   const now = Date.now();
   return ctx.db.insert("agentRunSteps", {
@@ -282,6 +312,7 @@ export async function addWaitingStep(
     status: "waiting",
     startedAt: now,
     inputSummary,
+    ...metadata,
     createdAt: now,
     updatedAt: now,
   });

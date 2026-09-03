@@ -169,6 +169,7 @@ assert.deepEqual(
   [
     "scheduler_trigger",
     "retrieve_context",
+    "resolve_recipient",
     "create_routine_instance",
     "compose_message",
     "send_message",
@@ -190,6 +191,15 @@ await mutate("mitraInbound:ingestSignal", {
 });
 scheduledOnceDetail = await getInstance(scheduledOnceInstance._id);
 assert.equal(scheduledOnceDetail.instance.status, "CONFIRMED");
+assert.equal(scheduledOnceDetail.outboundMessages.length, 2);
+const scheduledAcknowledgement = scheduledOnceDetail.outboundMessages.find(
+  (message) => message.purpose === "recipient_acknowledgement",
+);
+assert.ok(scheduledAcknowledgement);
+assert.doesNotMatch(
+  scheduledAcknowledgement.message,
+  /verified|confirmed independently|definitely taken/i,
+);
 assert.equal(scheduledOnceDetail.inboundSignals[0].rawContent, scheduledRawReply);
 assert.match(
   scheduledOnceDetail.instance.selfReportInterpretation.summary,
@@ -201,6 +211,7 @@ assert.deepEqual(
   [
     "scheduler_trigger",
     "retrieve_context",
+    "resolve_recipient",
     "create_routine_instance",
     "compose_message",
     "send_message",
@@ -209,6 +220,7 @@ assert.deepEqual(
     "persist_raw_signal",
     "interpret_signal",
     "update_routine_state",
+    "send_acknowledgement",
     "complete",
   ],
 );

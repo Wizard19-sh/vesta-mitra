@@ -476,6 +476,7 @@ async function saveCookingPeople(
     const visitIds = [];
     for (const visit of input.visits) {
       if (!visit.daysOfWeek.length) throw new Error("Choose at least one cooking day");
+      if (!visit.mealSlots.length) throw new Error("Choose at least one meal for each cooking visit");
       visitIds.push(
         await ctx.db.insert("tarlaCookVisits", {
           householdId: household._id,

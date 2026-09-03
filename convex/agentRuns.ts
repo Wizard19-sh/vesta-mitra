@@ -229,12 +229,70 @@ export const getRunTrace = query({
   },
   handler: async (ctx, { ownerKey, runId }) => {
     const run = await ownedRunByPublicId(ctx, runId, ownerKey);
-    const steps = await ctx.db
-      .query("agentRunSteps")
-      .withIndex("by_run_and_order", (q) => q.eq("runId", run._id))
-      .order("asc")
-      .collect();
-    return { run, steps };
+    const [steps, providerMessages, developmentMessages, exceptions, evidence, inboundSignals] =
+      await Promise.all([
+        ctx.db
+          .query("agentRunSteps")
+          .withIndex("by_run_and_order", (q) => q.eq("runId", run._id))
+          .order("asc")
+          .collect(),
+        ctx.db
+          .query("transportMessages")
+          .withIndex("by_run", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("devTransportMessages")
+          .withIndex("by_run", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("executionExceptions")
+          .withIndex("by_run", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("evidenceRecords")
+          .withIndex("by_run", (q) => q.eq("runId", run._id))
+          .collect(),
+        ctx.db
+          .query("inboundSignals")
+          .withIndex("by_run", (q) => q.eq("runId", run._id))
+          .collect(),
+      ]);
+    return {
+      run,
+      steps,
+      providerMessages: providerMessages.map((message) => ({
+        messageId: message.messageId,
+        provider: message.provider,
+        status: message.status,
+        recipientClass: message.recipientClass,
+        purpose: message.purpose,
+        requestedAt: message.requestedAt,
+        providerAcceptedAt: message.providerAcceptedAt,
+        sentAt: message.sentAt,
+        deliveredAt: message.deliveredAt,
+        readAt: message.readAt,
+        failedAt: message.failedAt,
+        failureSummary: message.failureSummary,
+      })),
+      developmentMessages: developmentMessages.map((message) => ({
+        messageId: message.messageId,
+        provider: "development",
+        status: "accepted" as const,
+        recipientClass: message.recipientClass,
+        purpose: message.purpose,
+        requestedAt: message.sentAt,
+      })),
+      exceptions,
+      evidence,
+      inboundSignals: inboundSignals.map((signal) => ({
+        signalType: signal.signalType,
+        timestamp: signal.timestamp,
+        matched: signal.matched,
+        rawPreserved: true,
+        contentLength: signal.rawContent.length,
+        messageId: signal.messageId,
+      })),
+    };
   },
 });
 

@@ -24,11 +24,7 @@ export function composeRoutineMessage(input: ComposeRoutineMessageInput) {
     ? ensurePunctuation(input.customMessage.trim())
     : routineReminder(input.routineType, label, input.language, input.style);
   const introduction = input.isFirstContact
-    ? firstContactIntroduction(
-        salutation,
-        input.language,
-        input.setupBy?.trim(),
-      )
+    ? firstContactIntroduction(salutation, input.language)
     : greeting(salutation, input.language);
 
   return `${introduction} ${reminder}`.replace(/\s+/g, " ").trim();
@@ -42,16 +38,11 @@ function greeting(salutation: string, language: Language) {
 function firstContactIntroduction(
   salutation: string,
   language: Language,
-  setupBy?: string,
 ) {
   if (language === "English") {
-    return setupBy
-      ? `Hi ${salutation}. I'm Mitra. ${setupBy} set me up to help with routines you have agreed to.`
-      : `Hi ${salutation}. I'm Mitra. I'm here to help with routines you have agreed to.`;
+    return `Hi ${salutation}. I'm Mitra, Aevia's routine assistant. I'll send reminders for the routines you agreed to.`;
   }
-  return setupBy
-    ? `Namaste ${salutation}. Main Mitra hoon. ${setupBy} ne mujhe aapke agreed routines mein help karne ke liye set up kiya hai.`
-    : `Namaste ${salutation}. Main Mitra hoon. Main aapke agreed routines mein help karne ke liye hoon.`;
+  return `Namaste ${salutation}. Main Mitra hoon, Aevia ka routine assistant. Aapke agreed routines ke reminders yahin milenge.`;
 }
 
 function routineReminder(
@@ -63,8 +54,8 @@ function routineReminder(
   if (language === "English") {
     if (routineType === "Medication") {
       return style === "Casual"
-        ? `It's time for ${label}. Please remember it.`
-        : `${capitalize(label)} is due now. Please remember it.`;
+        ? `It's time for ${label}. Have you taken it?`
+        : `${capitalize(label)} is due now. Have you taken it?`;
     }
     if (routineType === "Walk / activity") {
       return `This is your ${label} reminder.`;
@@ -76,7 +67,7 @@ function routineReminder(
   }
 
   if (routineType === "Medication") {
-    return `${capitalize(label)} ka time ho gaya. Lena yaad rakhiyega.`;
+    return `${capitalize(label)} ka time ho gaya. Le li?`;
   }
   if (routineType === "Walk / activity") {
     return `Aaj ${label} ka reminder hai.`;

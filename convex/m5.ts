@@ -343,7 +343,7 @@ export const getDashboard = query({
       .unique();
     if (!profile) return null;
     const household = await requireHousehold(ctx, profile.householdId, ownerKey);
-    const [primaryMember, members, preferences, endpoints, parents, routines, dayPlans, runs, tarlaProfiles, tarlaRules, cookStates, cookVisits] =
+    const [primaryMember, members, preferences, endpoints, parents, routines, dayPlans, runs, tarlaProfiles, tarlaRules, cookStates, cookVisits, executions, exceptions, shoppingNeeded, executionEvents] =
       await Promise.all([
         ctx.db.get(profile.memberId),
         ctx.db
@@ -393,6 +393,28 @@ export const getDashboard = query({
           .query("tarlaCookVisits")
           .withIndex("by_household", (q) => q.eq("householdId", household._id))
           .collect(),
+        ctx.db
+          .query("tarlaExecutions")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .order("desc")
+          .take(24),
+        ctx.db
+          .query("executionExceptions")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .order("desc")
+          .take(24),
+        ctx.db
+          .query("shoppingNeededItems")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .order("desc")
+          .take(24),
+        ctx.db
+          .query("productAnalyticsEvents")
+          .withIndex("by_household_and_time", (q) =>
+            q.eq("householdId", household._id),
+          )
+          .order("desc")
+          .take(250),
       ]);
     const latestInstances = await Promise.all(
       routines.map(async (routine) => {
@@ -442,6 +464,17 @@ export const getDashboard = query({
       dayPlans,
       runs,
       cookVisits: cookVisits.filter((visit) => visit.active),
+      executions,
+      exceptions,
+      shoppingNeeded: shoppingNeeded.filter((item) => item.status === "needed"),
+      executionMetrics: {
+        successfullyCompletedTasks: executionEvents.filter(
+          (event) => event.eventName === "task_completed",
+        ).length,
+        primaryUserInterventions: executionEvents.filter(
+          (event) => event.eventName === "primary_user_intervention",
+        ).length,
+      },
     };
   },
 });

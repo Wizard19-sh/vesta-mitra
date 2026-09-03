@@ -1,7 +1,31 @@
 import { getRecipe } from "./tarlaRecipes";
 import { naturalizeCookMessage } from "./tarlaMessageFormatting";
+import {
+  cumulativeHouseholdMeasure,
+  formatHouseholdMeasure,
+} from "./aeviaSetup";
+
 import type { CalculatedPlanItem } from "./tarlaPlanner";
 import type { CalculatedDayMeal } from "./tarlaDayPlanner";
+
+type MealChangeReason = {
+  mealSlot: string;
+  reasonType: "direct_substitution" | "secondary_adjustment";
+  reasonText: string;
+  recipeLine: string;
+  nutritionBeforeAfter?: {
+    before: { caloriesKcal: number; proteinG: number };
+    after: { caloriesKcal: number; proteinG: number };
+  };
+};
+
+type NutritionTotalsScope = "household";
+
+type NutritionBeforeAfter = {
+  before: { caloriesKcal: number; proteinG: number };
+  after: { caloriesKcal: number; proteinG: number };
+  scope: NutritionTotalsScope;
+};
 
 export function composeCookPrimingMessage(input: {
   cookName: string;
@@ -28,14 +52,15 @@ export function composeCookInstruction(input: {
   memberNotes: Array<{ memberName: string; note: string }>;
   importantRestrictions: string[];
   preferredLanguage?: string;
+  cookName?: string;
+  relationshipType?: "hired_cook" | "family_cook" | "primary_user" | "other";
   revisedBecause?: string;
 }) {
   const language = input.preferredLanguage?.toLocaleLowerCase() ?? "hinglish";
   const title = language.includes("english")
     ? `${capitalize(input.mealSlot)} plan`
     : `${capitalize(input.mealSlot)} ka plan`;
-  const servings = `${round(input.totalServingEquivalents)} serving equivalents`;
-  const lines = input.items.map((item) => `- ${item.recipeName}${quantityNote(item)}`);
+  const lines = input.items.map((item) => `- ${item.recipeName} — ${householdQuantity(item)}`);
   const notes = input.memberNotes.map(
     ({ memberName, note }) => `- ${memberName}: ${note}`,
   );
@@ -46,7 +71,7 @@ export function composeCookInstruction(input: {
     ? [`Revised because ${input.revisedBecause}.`]
     : [];
   return naturalizeCookMessage([
-    `${title} (${servings}):`,
+    relationshipOpening(input, title),
     ...lines,
     ...notes,
     ...restrictions,
@@ -65,50 +90,99 @@ export function composeDayCookInstruction(input: {
   meals: CalculatedDayMeal[];
   memberNotes: Array<{ memberName: string; note: string }>;
   importantRestrictions: string[];
+  cookName?: string;
+  preferredLanguage?: string;
+  relationshipType?: "hired_cook" | "family_cook" | "primary_user" | "other";
   revisedBecause?: string;
+  changedMeals?: MealChangeReason[];
+  nutritionBeforeAfter?: NutritionBeforeAfter;
+  fallbackNotes?: string[];
 }) {
   const mealLines = input.meals.flatMap((meal) => [
-    `${capitalize(meal.mealSlot)} (${round(meal.plan.totalServingEquivalents)} serving equivalents):`,
+    `${capitalize(meal.mealSlot)}:`,
     ...meal.plan.items.map(
-      (item) => `- ${item.recipeName}${quantityNote(item)}`,
+      (item) => `- ${item.recipeName} — ${householdQuantity(item)}`,
     ),
   ]);
   const notes = input.memberNotes.map(
     ({ memberName, note }) => `- ${memberName}: ${note}`,
   );
+  const mealReasonLines = input.changedMeals?.map((entry) => {
+    const typeLabel =
+      entry.reasonType === "direct_substitution"
+        ? "Direct substitution"
+        : "Secondary adjustment";
+    const deltaText = entry.nutritionBeforeAfter
+      ? ` — ${formatDelta(entry.nutritionBeforeAfter)}`
+      : "";
+    return `- ${capitalize(entry.mealSlot)}: ${typeLabel}; ${entry.reasonText}; ${entry.recipeLine}${deltaText}`;
+  });
+  const nutritionLines =
+    input.nutritionBeforeAfter &&
+    input.nutritionBeforeAfter.scope === "household"
+    ? [
+        `Daily totals (household) kcal/protein: ${input.nutritionBeforeAfter.before.caloriesKcal} → ${input.nutritionBeforeAfter.after.caloriesKcal} kcal, ${input.nutritionBeforeAfter.before.proteinG} → ${input.nutritionBeforeAfter.after.proteinG} g protein`,
+      ]
+    : [];
+  const fallbackLines = input.fallbackNotes?.length
+    ? input.fallbackNotes.map((note) => `Fallback: ${note}`)
+    : [];
   return naturalizeCookMessage([
-    `${input.visitLabel} — ${input.targetDate}`,
+    relationshipOpening(input, `${input.visitLabel} — ${input.targetDate}`),
     ...mealLines,
     ...notes,
     ...(input.importantRestrictions.length
       ? [`Important: ${input.importantRestrictions.join("; ")}.`]
       : []),
+    ...(mealReasonLines?.length ? ["", "Changed dishes:"] : []),
+    ...(mealReasonLines ?? []),
+    ...nutritionLines,
+    ...fallbackLines,
     ...(input.revisedBecause
       ? [`Revised because ${input.revisedBecause}.`]
       : []),
   ].join("\n"));
 }
 
-function quantityNote(item: CalculatedPlanItem) {
-  const notable = item.ingredients.filter(
-    (ingredient) => !["oil", "tomato", "onion", "lemon"].includes(ingredient.ingredientKey),
+function householdQuantity(item: CalculatedPlanItem) {
+  return formatHouseholdMeasure(
+    cumulativeHouseholdMeasure(
+      item.recipeId,
+      item.memberPortions.map((portion) => portion.servingEquivalent),
+    ),
   );
-  if (notable.length === 0) return "";
-  return ` (${notable
-    .slice(0, 2)
-    .map((ingredient) => `${ingredient.ingredientName} ${formatGrams(ingredient.quantityG)}`)
-    .join(", ")})`;
 }
 
-function formatGrams(quantityG: number) {
-  if (quantityG >= 1_000) return `${round(quantityG / 1_000)} kg`;
-  return `${round(quantityG)} g`;
-}
-
-function round(value: number) {
-  return Math.round(value * 10) / 10;
+function relationshipOpening(input: {
+  cookName?: string;
+  preferredLanguage?: string;
+  relationshipType?: "hired_cook" | "family_cook" | "primary_user" | "other";
+}, title: string) {
+  const name = input.cookName?.trim();
+  const english = input.preferredLanguage?.toLocaleLowerCase().includes("english");
+  if (input.relationshipType === "family_cook" || input.relationshipType === "primary_user") {
+    if (!name) return title;
+    return english ? `Hi ${name}. ${title}` : `${name}, ${title}`;
+  }
+  if (!name) return title;
+  return english ? `Hi ${name}. ${title}` : `Namaste ${name}. ${title}`;
 }
 
 function capitalize(value: string) {
   return value.charAt(0).toLocaleUpperCase() + value.slice(1);
+}
+
+function formatDelta(input: {
+  before: { caloriesKcal: number; proteinG: number };
+  after: { caloriesKcal: number; proteinG: number };
+}) {
+  const calorieDelta = roundNutrition(input.after.caloriesKcal - input.before.caloriesKcal);
+  const proteinDelta = roundNutrition(input.after.proteinG - input.before.proteinG);
+  const calorieSign = calorieDelta > 0 ? "+" : "";
+  const proteinSign = proteinDelta > 0 ? "+" : "";
+  return `${calorieSign}${calorieDelta} kcal, ${proteinSign}${proteinDelta} g protein`;
+}
+
+function roundNutrition(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
 }

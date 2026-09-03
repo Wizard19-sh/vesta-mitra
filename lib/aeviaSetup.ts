@@ -16,13 +16,16 @@ export type CommunicationAudience =
   | "caretaker"
   | "hired_cook"
   | "family_cook";
-export type CommunicationSurface = "whatsapp" | "consumer_ui";
+export type CommunicationSurface = "whatsapp" | "consumer_ui" | "admin_evidence";
 export type CommunicationMoment =
   | "setup"
   | "reminder"
   | "acknowledgement"
   | "summary"
   | "exception"
+  | "approval_request"
+  | "resolution"
+  | "escalation"
   | "confirmation";
 
 export type CommunicationContext = {
@@ -357,7 +360,7 @@ export type HouseholdMeasure = {
 export function personHouseholdMeasure(recipeId: string, servingEquivalent: number): HouseholdMeasure {
   const definition = recipeMeasure(recipeId);
   return {
-    quantity: roundToQuarter(definition.perServing * servingEquivalent),
+    quantity: definition.perServing * servingEquivalent,
     unit: definition.unit,
   };
 }
@@ -368,20 +371,19 @@ export function cumulativeHouseholdMeasure(
 ): HouseholdMeasure {
   const definition = recipeMeasure(recipeId);
   return {
-    quantity: roundToQuarter(
-      servingEquivalents.reduce(
-        (sum, serving) =>
-          sum + personHouseholdMeasure(recipeId, serving).quantity,
-        0,
-      ),
+    quantity: servingEquivalents.reduce(
+      (sum, serving) =>
+        sum + personHouseholdMeasure(recipeId, serving).quantity,
+      0,
     ),
     unit: definition.unit,
   };
 }
 
 export function formatHouseholdMeasure(measure: HouseholdMeasure) {
-  const quantity = formatQuarter(measure.quantity);
-  const unit = measure.quantity === 1 ? singular(measure.unit) : measure.unit;
+  const rounded = formatQuantityForPresentation(measure.quantity, measure.unit);
+  const unit = rounded === 1 ? singular(measure.unit) : measure.unit;
+  const quantity = formatFractionalQuantity(rounded);
   return `${quantity} ${unit}`;
 }
 
@@ -391,7 +393,7 @@ export function householdMeasuresReconcile(
 ) {
   const people = servingEquivalents.map((serving) => personHouseholdMeasure(recipeId, serving));
   const total = cumulativeHouseholdMeasure(recipeId, servingEquivalents);
-  return roundToQuarter(people.reduce((sum, measure) => sum + measure.quantity, 0)) === total.quantity;
+  return people.reduce((sum, measure) => sum + measure.quantity, 0) === total.quantity;
 }
 
 function recipeMeasure(recipeId: string) {
@@ -406,14 +408,25 @@ function recipeMeasure(recipeId: string) {
   return { perServing: 1, unit: "bowls" };
 }
 
-function roundToQuarter(value: number) {
-  return Math.round(value * 4) / 4;
+function roundToHalf(value: number) {
+  return Math.round(value * 2) / 2;
 }
 
-function formatQuarter(value: number) {
+function formatQuantityForPresentation(value: number, unit: string) {
+  if (isVolumeUnit(unit)) {
+    return roundToHalf(value);
+  }
+  return Math.max(1, Math.round(value));
+}
+
+function isVolumeUnit(unit: string) {
+  return unit === "bowls" || unit === "cups";
+}
+
+function formatFractionalQuantity(value: number) {
   const whole = Math.floor(value);
-  const fraction = value - whole;
-  const suffix = fraction === 0.25 ? "¼" : fraction === 0.5 ? "½" : fraction === 0.75 ? "¾" : "";
+  const fraction = Number((value - whole).toFixed(1));
+  const suffix = fraction === 0.5 ? "½" : "";
   return whole ? `${whole}${suffix}` : suffix || "0";
 }
 

@@ -65,6 +65,7 @@ class ConvexProviderRouterTransport implements MessageTransport {
       dayPlanId: links.dayPlanId,
       cookVisitId: links.cookVisitId,
       purpose: links.purpose,
+      recipientClass: links.recipientClass,
       recipientAddress: requiredText(
         input.recipient.address,
         "Recipient address",
@@ -149,6 +150,7 @@ class ConvexProviderRouterTransport implements MessageTransport {
       dayPlanId: links.dayPlanId,
       cookVisitId: links.cookVisitId,
       purpose: links.purpose,
+      recipientClass: links.recipientClass,
       channel: "whatsapp",
       message,
       requestedAt,
@@ -189,6 +191,7 @@ type TransportLinks = {
   dayPlanId?: Id<"tarlaDayPlans">;
   cookVisitId?: Id<"tarlaCookVisits">;
   purpose?: string;
+  recipientClass?: string;
 };
 
 function transportLinks(metadata: Record<string, unknown>): TransportLinks {
@@ -233,6 +236,7 @@ function transportLinks(metadata: Record<string, unknown>): TransportLinks {
     dayPlanId,
     cookVisitId,
     purpose: optionalMetadataText(metadata, "purpose"),
+    recipientClass: optionalMetadataText(metadata, "recipientClass"),
   };
 }
 

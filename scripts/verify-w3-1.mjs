@@ -300,6 +300,19 @@ const palakShopping = shopping.find(
   (item) => item.ingredientKey === "spinach" && item.status === "needed",
 );
 assert.ok(palakShopping);
+const revisedInstructionProof = verifyStoredRevisedInstruction({
+  instruction: onceExecution.execution.latestInstruction,
+  beforePlan: latestBeforeMissing,
+  afterExecution: onceExecution,
+  missingIngredientKey: palakShopping.ingredientKey,
+  missingIngredientName: palakShopping.item,
+  expectedNames: ["Kitchen Cook", "Primary User", "Little Child"],
+});
+assert.equal(
+  onceExecution.outboundMessages.at(-1)?.message,
+  onceExecution.execution.latestInstruction,
+  "The revised development transport message must exactly match execution.latestInstruction",
+);
 
 assert.deepEqual(
   onceExecution.steps.map((step) => step.order),
@@ -379,13 +392,23 @@ console.log(
         affectedMealSlots: missing.affectedMealSlots,
         revisedDayPlanId: onceExecution.dayPlan._id,
         revisedDayPlanVersion: onceExecution.dayPlan.version,
-        updatedDailyTotal: onceExecution.dayPlan.totalNutrition,
+        updatedHouseholdTotal: onceExecution.dayPlan.totalNutrition,
+        updatedHouseholdTotalScope: "household",
+        primaryUpdatedTotal: memberDay(onceExecution, once.primaryId).total,
+        primaryTotalScope: "member:primary",
         primaryUpdatedVariance: memberDay(onceExecution, once.primaryId).variance,
         shoppingItem: palakShopping.item,
         revisedInstruction: onceExecution.execution.latestInstruction,
+        revisedInstructionSource:
+          "tarlaDayPlanning:getDayExecution.execution.latestInstruction",
+        revisedOutboundMessageId: onceExecution.execution.revisedOutboundMessageId,
+        changedDishProof: revisedInstructionProof.changedMeals,
+        householdNutritionProof: revisedInstructionProof.householdNutrition,
         userEscalationRequired: onceExecution.execution.userEscalationRequired,
       },
       observability: {
+        onceExecutionId: onceExecution.execution._id,
+        onceRunDocumentId: onceExecution.run._id,
         onceRunId: onceExecution.run.runId,
         onceTrace: onceExecution.steps.map((step) => ({
           order: step.order,
@@ -427,7 +450,7 @@ async function createHouseholdFixture(label, targetDate) {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: `${label} Sid`,
+      name: "Primary User",
       role: "primary user",
       age: 35,
       sex: "Male",
@@ -438,7 +461,7 @@ async function createHouseholdFixture(label, targetDate) {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: `${label} Mira`,
+      name: "Adult Spouse",
       role: "spouse",
       age: 34,
       sex: "Female",
@@ -447,7 +470,7 @@ async function createHouseholdFixture(label, targetDate) {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: `${label} Child`,
+      name: "Little Child",
       role: "child",
       age: 9,
       languagePreference: "English",
@@ -455,7 +478,7 @@ async function createHouseholdFixture(label, targetDate) {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: `${label} Didi`,
+      name: "Kitchen Cook",
       role: "cook",
       languagePreference: "Hindi",
     }),
@@ -623,6 +646,214 @@ function memberDay(detail, memberId) {
   );
   if (!found) throw new Error(`Member daily nutrition missing for ${memberId}`);
   return found;
+}
+
+function verifyStoredRevisedInstruction(input) {
+  const {
+    instruction,
+    beforePlan,
+    afterExecution,
+    missingIngredientKey,
+    missingIngredientName,
+    expectedNames,
+  } = input;
+  assert.ok(
+    typeof instruction === "string" && instruction.length > 0,
+    "tarlaDayPlanning:getDayExecution.execution.latestInstruction must be stored",
+  );
+  for (const name of expectedNames) {
+    assert.match(
+      instruction,
+      new RegExp(escapeRegExp(name), "i"),
+      `Stored latestInstruction must include clean fixture name ${name}`,
+    );
+  }
+  assert.doesNotMatch(
+    instruction,
+    /\bonce (?:Didi|Sid|Child)\b/i,
+    "Stored latestInstruction contains old fixture-like names",
+  );
+
+  const beforeMealsBySlot = new Map(
+    beforePlan.meals.map((meal) => [meal.join.mealSlot, meal.calculated]),
+  );
+  const afterMealsBySlot = new Map(
+    afterExecution.meals.map((meal) => [meal.join.mealSlot, meal.calculated]),
+  );
+  const changedMeals = [];
+  for (const [mealSlot, beforeMeal] of beforeMealsBySlot.entries()) {
+    const afterMeal = afterMealsBySlot.get(mealSlot);
+    if (!afterMeal) continue;
+    const recipeChanged = beforeMeal.plan.templateId !== afterMeal.plan.templateId;
+    const ingredientsChanged = !sameSortedArray(
+      beforeMeal.plan.ingredientKeys,
+      afterMeal.plan.ingredientKeys,
+    );
+    const servingDiff =
+      roundServing(beforeMeal.plan.totalServingEquivalents) !==
+      roundServing(afterMeal.plan.totalServingEquivalents);
+    const changedByTemplate = recipeChanged || ingredientsChanged || servingDiff;
+    if (!changedByTemplate) continue;
+    const hasMissingIngredient = beforeMeal.plan.ingredientKeys.includes(
+      missingIngredientKey,
+    );
+    const reasonType = hasMissingIngredient
+      ? "direct_substitution"
+      : "secondary_adjustment";
+    const typeLabel =
+      reasonType === "direct_substitution"
+        ? "Direct substitution"
+        : "Secondary adjustment";
+    const reasonPattern =
+      reasonType === "direct_substitution"
+        ? new RegExp(
+            `${escapeRegExp(missingIngredientName)} was unavailable and directly replaced this dish`,
+            "i",
+          )
+        : /Adjusted this dish after substitution to keep calorie\/protein targets closer to target ranges/i;
+    const changedDishLine = instruction
+      .split(/\r?\n/)
+      .find((line) =>
+        line.startsWith(`- ${capitalize(mealSlot)}: ${typeLabel};`),
+      );
+    assert.ok(
+      changedDishLine,
+      `Stored latestInstruction must classify changed ${mealSlot} as ${typeLabel}`,
+    );
+    assert.match(
+      changedDishLine,
+      reasonPattern,
+      `Stored latestInstruction must explain the ${mealSlot} change`,
+    );
+    assert.ok(
+      changedDishLine.includes(
+        `${beforeMeal.plan.templateName} -> ${afterMeal.plan.templateName}`,
+      ),
+      `Stored latestInstruction must identify the ${mealSlot} recipe change`,
+    );
+    changedMeals.push({
+      mealSlot,
+      reasonType,
+      beforeTemplate: beforeMeal.plan.templateName,
+      afterTemplate: afterMeal.plan.templateName,
+    });
+  }
+  assert.ok(changedMeals.length > 0, "The palak scenario must change a dish");
+  assert.ok(
+    changedMeals.some((meal) => meal.reasonType === "direct_substitution"),
+    "The palak scenario must identify its direct substitution",
+  );
+  assert.match(instruction, /(?:^|\n)Changed dishes:\r?(?:\n|$)/);
+
+  const householdNutrition = verifyHouseholdNutritionScope(
+    beforePlan.dayPlan,
+    afterExecution.dayPlan,
+  );
+  const storedTotalsMatch = instruction.match(
+    /Daily totals \(household\) kcal\/protein: ([0-9.]+) → ([0-9.]+) kcal, ([0-9.]+) → ([0-9.]+) g protein/,
+  );
+  const storedTotals = storedTotalsMatch?.slice(1).map(Number);
+  const expectedTotals = [
+    householdNutrition.before.caloriesKcal,
+    householdNutrition.after.caloriesKcal,
+    householdNutrition.before.proteinG,
+    householdNutrition.after.proteinG,
+  ];
+  assert.ok(
+    storedTotals &&
+      Math.abs(storedTotals[0] - expectedTotals[0]) <= 1 &&
+      Math.abs(storedTotals[1] - expectedTotals[1]) <= 1 &&
+      Math.abs(storedTotals[2] - expectedTotals[2]) <= 0.5 &&
+      Math.abs(storedTotals[3] - expectedTotals[3]) <= 0.5,
+    `Stored latestInstruction must include like-for-like household calorie and protein totals within tolerance; expected=${JSON.stringify(expectedTotals)}, stored=${JSON.stringify(storedTotals)}`,
+  );
+
+  return { changedMeals, householdNutrition };
+}
+
+function verifyHouseholdNutritionScope(beforePlan, afterPlan) {
+  assert.ok(beforePlan && afterPlan, "Both day plans are required for totals");
+  const beforeMembers = [...beforePlan.memberDailyNutrition].sort((left, right) =>
+    String(left.memberId).localeCompare(String(right.memberId)),
+  );
+  const afterMembers = [...afterPlan.memberDailyNutrition].sort((left, right) =>
+    String(left.memberId).localeCompare(String(right.memberId)),
+  );
+  assert.deepEqual(
+    beforeMembers.map((member) => member.memberId),
+    afterMembers.map((member) => member.memberId),
+    "Before and after household totals must cover the same members",
+  );
+  const before = verifyPlanTotalMatchesMembers("before", beforePlan, beforeMembers);
+  const after = verifyPlanTotalMatchesMembers("after", afterPlan, afterMembers);
+  return {
+    scope: "household",
+    memberIds: beforeMembers.map((member) => member.memberId),
+    before,
+    after,
+  };
+}
+
+function sameSortedArray(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  const sortedLeft = [...left].sort();
+  const sortedRight = [...right].sort();
+  return sortedLeft.every((value, index) => sortedRight[index] === value);
+}
+
+function roundServing(value) {
+  return round(Number.isFinite(value) ? value : 0);
+}
+
+function capitalize(value) {
+  return value ? value[0].toLocaleUpperCase() + value.slice(1) : value;
+}
+
+function verifyPlanTotalMatchesMembers(label, plan, members) {
+  assert.ok(
+    Number.isFinite(plan.totalNutrition?.caloriesKcal) &&
+      Number.isFinite(plan.totalNutrition?.proteinG),
+    `${label} day plan must store household calorie and protein totals`,
+  );
+  assert.ok(
+    members.every(
+      (member) =>
+        Number.isFinite(member.total?.caloriesKcal) &&
+        Number.isFinite(member.total?.proteinG),
+    ),
+    `${label} day plan must store calorie and protein totals for every member`,
+  );
+  const memberSum = members.reduce(
+    (total, member) => ({
+      caloriesKcal: total.caloriesKcal + member.total.caloriesKcal,
+      proteinG: total.proteinG + member.total.proteinG,
+    }),
+    { caloriesKcal: 0, proteinG: 0 },
+  );
+  const storedTotal = {
+    caloriesKcal: round(plan.totalNutrition.caloriesKcal),
+    proteinG: round(plan.totalNutrition.proteinG),
+  };
+  const summedTotal = {
+    caloriesKcal: round(memberSum.caloriesKcal),
+    proteinG: round(memberSum.proteinG),
+  };
+  const differences = {
+    caloriesKcal: storedTotal.caloriesKcal - summedTotal.caloriesKcal,
+    proteinG: storedTotal.proteinG - summedTotal.proteinG,
+  };
+  assert.ok(
+    Math.abs(differences.caloriesKcal) <= 1 &&
+      Math.abs(differences.proteinG) <= 0.5,
+    `${label} household total must equal the sum of the same plan's member totals within tolerance; ` +
+      `stored=${JSON.stringify(storedTotal)}, summed=${JSON.stringify(summedTotal)}, ` +
+      `difference=${JSON.stringify(differences)}`,
+  );
+  return storedTotal;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function safeFutureLocalSchedule(minutes) {

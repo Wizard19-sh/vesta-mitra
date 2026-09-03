@@ -1,9 +1,21 @@
 import { v } from "convex/values";
 import { interpretRoutineSignal } from "../lib/interpretRoutineSignal";
+import {
+  composeMitraAcknowledgement,
+  isHigherRiskReminderChange,
+  primaryUserMitraSummary,
+} from "../lib/m2Execution";
+import type { AeviaLanguage } from "../lib/aeviaSetup";
 import type { MitraRoutineType } from "../lib/composeRoutineMessage";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
 import { mutation } from "./_generated/server";
+import { getMessageTransport } from "./messageTransport";
+import {
+  createExecutionException,
+  markTaskComplete,
+  recordExecutionEvent,
+} from "./executionSupport";
 
 const signalType = v.union(
   v.literal("text"),
@@ -82,22 +94,34 @@ export const ingestSignal = mutation({
       return { signalId, matched: false, checkInId: undefined };
     }
 
-    const instances = await ctx.db
+    const memberInstances = await ctx.db
       .query("checkIns")
       .withIndex("by_member", (q) => q.eq("memberId", endpoint!.memberId))
       .order("desc")
       .collect();
+    const followUpInstances = await ctx.db
+      .query("checkIns")
+      .withIndex("by_follow_up_endpoint", (q) =>
+        q.eq("followUpCommunicationEndpointId", endpoint!._id),
+      )
+      .order("desc")
+      .collect();
+    const instances = [...memberInstances, ...followUpInstances].sort(
+      (a, b) => b.createdAt - a.createdAt,
+    );
     const referencedMessageId =
       args.metadata?.inReplyToMessageId ??
       args.metadata?.reactionToMessageId;
     const openInstance = instances.find(
       (instance) =>
-        instance.communicationEndpointId === endpoint._id &&
+        (instance.communicationEndpointId === endpoint._id ||
+          instance.followUpCommunicationEndpointId === endpoint._id) &&
         (instance.status === "WAITING" ||
           instance.status === "SENT" ||
           instance.status === "UNCONFIRMED") &&
         (!referencedMessageId ||
-          instance.outboundMessageId === referencedMessageId),
+          instance.outboundMessageId === referencedMessageId ||
+          instance.followUpOutboundMessageId === referencedMessageId),
     );
 
     if (!openInstance?.runId) {
@@ -135,6 +159,15 @@ export const ingestSignal = mutation({
       checkInId: openInstance._id,
       runId: run._id,
       matched: true,
+    });
+    await recordExecutionEvent(ctx, {
+      eventKey: `${signalId}:reply_received`,
+      householdId: run.householdId,
+      runId: run._id,
+      taskType: run.taskType,
+      eventName: "reply_received",
+      agent: "mitra",
+      outcome: args.signalType,
     });
     await completeLatestWaitingStep(
       ctx,
@@ -189,6 +222,133 @@ export const ingestSignal = mutation({
       "Stored the unchanged raw signal in its source record",
     );
 
+    const sourceAudience =
+      openInstance.followUpCommunicationEndpointId === endpoint._id
+        ? ("caretaker" as const)
+        : (openInstance.intendedRecipientClass ??
+          routine.recipientAudience ??
+          "senior");
+    const language = supportedLanguage(
+      endpoint.preferredLanguage ?? parent.preferredLanguage,
+    );
+    if (
+      args.signalType === "text" &&
+      isHigherRiskReminderChange({
+        routineType: runtimeRoutineType(routine.type),
+        rawContent: args.rawContent,
+      })
+    ) {
+      const profile = openInstance.householdId
+        ? await ctx.db
+            .query("betaUserProfiles")
+            .withIndex("by_household", (q) =>
+              q.eq("householdId", openInstance.householdId!),
+            )
+            .unique()
+        : null;
+      if (!openInstance.householdId) {
+        throw new Error("Routine instance is missing household context");
+      }
+      const exceptionId = await createExecutionException(ctx, {
+        householdId: openInstance.householdId,
+        runId: run._id,
+        agent: "mitra",
+        taskType: run.taskType,
+        checkInId: openInstance._id,
+        sourceMemberId: endpoint.memberId,
+        riskClass: "high",
+        policyCode: "MEDICINE_REMINDER_CHANGE_REQUIRES_APPROVAL",
+        rawRequest: args.rawContent,
+        proposedAction: `Stop the ${routine.label ?? routine.prompt} reminder.`,
+        status: "pending_approval",
+        requiredApproverMemberId: profile?.memberId,
+      });
+      await addCompletedStep(
+        ctx,
+        run._id,
+        order++,
+        "classify_change_request",
+        "Apply the explicit beta policy for medicine-reminder changes",
+        "Classified the request as higher risk and left the routine unchanged",
+        {
+          component: "mitra",
+          usageStatus: "not_applicable",
+          outcome: "PENDING_APPROVAL",
+          exceptionId,
+        },
+      );
+      const acknowledgement = composeMitraAcknowledgement({
+        language,
+        outcome: "change_pending",
+      });
+      const sent = await getMessageTransport(ctx).sendMessage({
+        recipient: {
+          memberId: String(endpoint.memberId),
+          endpointId: String(endpoint._id),
+          address: endpoint.address,
+        },
+        channel: endpoint.channel,
+        message: acknowledgement,
+        metadata: {
+          householdId: String(openInstance.householdId),
+          checkInId: String(openInstance._id),
+          runId: String(run._id),
+          routineId: String(routine._id),
+          purpose: "change_request_acknowledgement",
+          recipientClass: sourceAudience,
+        },
+      });
+      await addCompletedStep(
+        ctx,
+        run._id,
+        order++,
+        "acknowledge_change_request",
+        "Tell the recipient that the request needs household approval",
+        "Sent a brief acknowledgement without applying the change",
+        {
+          component: "transport",
+          tool: "whatsapp",
+          provider: sent.provider,
+          usageStatus: "not_applicable",
+          outcome: sent.providerStatus,
+          exceptionId,
+        },
+      );
+      await ctx.db.patch(openInstance._id, {
+        status: "NEEDS_ATTENTION",
+        responseAt: args.timestamp,
+        rawResponse: args.rawContent,
+        inboundSignalReceived: true,
+        latestInboundSignalId: signalId,
+        responseSourceMemberId: endpoint.memberId,
+        responseSourceAudience: sourceAudience,
+        acknowledgementOutboundMessageId: sent.messageId,
+        primaryUserSummary: `${parent.salutation ?? parent.name} asked to stop the ${routine.label ?? routine.prompt} reminder. Your approval is required before it changes.`,
+      });
+      await addWaitingStep(
+        ctx,
+        run._id,
+        order,
+        "wait_for_primary_user_decision",
+        "Keep the routine active while the household account holder reviews the request",
+      );
+      await ctx.db.patch(run._id, {
+        status: "waiting",
+        outcome: "PENDING_APPROVAL",
+        primaryUserInterventionRequired: true,
+        outputSummary: "Medicine-reminder change is waiting for authorised approval",
+        updatedAt: Date.now(),
+      });
+      return {
+        signalId,
+        matched: true,
+        checkInId: openInstance._id,
+        state: "PENDING_APPROVAL",
+        exceptionId,
+        runId: run.runId,
+      };
+    }
+
     const interpretation = interpretRoutineSignal({
       signalType: args.signalType,
       rawContent: args.rawContent,
@@ -210,6 +370,9 @@ export const ingestSignal = mutation({
       responseAt: args.timestamp,
       inboundSignalReceived: true,
       latestInboundSignalId: signalId,
+      rawResponse: args.rawContent,
+      responseSourceMemberId: endpoint.memberId,
+      responseSourceAudience: sourceAudience,
       selfReportInterpretation: {
         outcome: interpretation.outcome,
         summary: interpretation.summary,
@@ -230,6 +393,52 @@ export const ingestSignal = mutation({
     );
 
     if (interpretation.state === "CONFIRMED") {
+      const acknowledgement = composeMitraAcknowledgement({
+        language,
+        outcome: "completed",
+      });
+      const sent = await getMessageTransport(ctx).sendMessage({
+        recipient: {
+          memberId: String(endpoint.memberId),
+          endpointId: String(endpoint._id),
+          address: endpoint.address,
+        },
+        channel: endpoint.channel,
+        message: acknowledgement,
+        metadata: {
+          householdId: String(openInstance.householdId),
+          checkInId: String(openInstance._id),
+          runId: String(run._id),
+          routineId: String(routine._id),
+          purpose: "recipient_acknowledgement",
+          recipientClass: sourceAudience,
+        },
+      });
+      await ctx.db.patch(openInstance._id, {
+        acknowledgementOutboundMessageId: sent.messageId,
+        primaryUserSummary: primaryUserMitraSummary({
+          personSalutation: parent.salutation ?? parent.name,
+          routineType: runtimeRoutineType(routine.type),
+          routineLabel: routine.label ?? routine.prompt,
+          sourceAudience,
+          completed: true,
+        }),
+      });
+      await addCompletedStep(
+        ctx,
+        run._id,
+        order++,
+        "send_acknowledgement",
+        "Respond naturally after a supported self-report",
+        "Sent a brief acknowledgement without claiming independent verification",
+        {
+          component: "transport",
+          tool: "whatsapp",
+          provider: sent.provider,
+          usageStatus: "not_applicable",
+          outcome: sent.providerStatus,
+        },
+      );
       await addCompletedStep(
         ctx,
         run._id,
@@ -243,6 +452,13 @@ export const ingestSignal = mutation({
         run,
         "Routine instance completed from a self-reported confirmation",
       );
+      await markTaskComplete(ctx, {
+        run,
+        agent: "mitra",
+        outcome: "SELF_REPORTED_COMPLETE",
+        recipientClass: sourceAudience,
+        surface: transportSurface(endpoint),
+      });
     } else {
       await addWaitingStep(
         ctx,
@@ -320,6 +536,16 @@ async function addCompletedStep(
   name: string,
   inputSummary: string,
   outputSummary: string,
+  metadata?: {
+    component?: string;
+    tool?: string;
+    provider?: string;
+    model?: string;
+    usageStatus?: "tracked" | "unavailable" | "not_applicable";
+    outcome?: string;
+    exceptionId?: Id<"executionExceptions">;
+    evidenceRecordId?: Id<"evidenceRecords">;
+  },
 ) {
   const startedAt = Date.now();
   const completedAt = Date.now();
@@ -333,6 +559,7 @@ async function addCompletedStep(
     latencyMs: completedAt - startedAt,
     inputSummary,
     outputSummary,
+    ...metadata,
     createdAt: startedAt,
     updatedAt: completedAt,
   });
@@ -344,6 +571,12 @@ async function addWaitingStep(
   order: number,
   name: string,
   inputSummary: string,
+  metadata?: {
+    component?: string;
+    tool?: string;
+    provider?: string;
+    usageStatus?: "tracked" | "unavailable" | "not_applicable";
+  },
 ) {
   const now = Date.now();
   return ctx.db.insert("agentRunSteps", {
@@ -353,6 +586,7 @@ async function addWaitingStep(
     status: "waiting",
     startedAt: now,
     inputSummary,
+    ...metadata,
     createdAt: now,
     updatedAt: now,
   });
@@ -418,4 +652,17 @@ function requiredText(value: string, label: string, maxLength: number) {
     throw new Error(`${label} must be ${maxLength} characters or fewer`);
   }
   return clean;
+}
+
+function supportedLanguage(value?: string): AeviaLanguage {
+  if (/hinglish/i.test(value ?? "")) return "Hinglish";
+  if (/hindi/i.test(value ?? "")) return "Hindi";
+  return "English";
+}
+
+function transportSurface(endpoint: Doc<"communicationEndpoints">) {
+  const provider = endpoint.providerMetadata?.provider?.toLocaleLowerCase();
+  return provider === "development" || provider === "dev"
+    ? ("development_transport" as const)
+    : ("whatsapp" as const);
 }
