@@ -18,6 +18,38 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_owner", ["ownerKey"]),
 
+  betaUserProfiles: defineTable({
+    ownerKey: v.string(),
+    householdId: v.id("households"),
+    memberId: v.id("members"),
+    name: v.string(),
+    email: v.string(),
+    termsVersion: v.string(),
+    privacyVersion: v.string(),
+    acceptedAt: v.number(),
+    betaStatus: v.literal("accepted"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner", ["ownerKey"])
+    .index("by_household", ["householdId"]),
+
+  productAnalyticsEvents: defineTable({
+    anonymousId: v.string(),
+    householdId: v.optional(v.id("households")),
+    eventName: v.string(),
+    route: v.optional(v.string()),
+    agent: v.optional(
+      v.union(v.literal("mitra"), v.literal("tarla"), v.literal("both")),
+    ),
+    outcome: v.optional(v.string()),
+    occurredAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_anonymous_and_time", ["anonymousId", "occurredAt"])
+    .index("by_household_and_time", ["householdId", "occurredAt"])
+    .index("by_event", ["eventName"]),
+
   members: defineTable({
     householdId: v.id("households"),
     name: v.string(),

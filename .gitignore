@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/playwright-report
+/test-results
 /.w4-meta-live-state.json
 /.w4-meta-tarla-live-state.json
 

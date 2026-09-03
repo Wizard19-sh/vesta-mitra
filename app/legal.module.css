@@ -1,0 +1,161 @@
+.shell {
+  --paper: #fffdf8;
+  --cream: #f6f0e5;
+  --charcoal: #282921;
+  --terracotta: #b86242;
+  --sage: #3f4936;
+  min-height: 100vh;
+  color: var(--charcoal);
+  background: linear-gradient(145deg, #fbf7ef, var(--cream));
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 74px;
+  border-bottom: 1px solid rgba(40, 41, 33, 0.11);
+  padding: 0 5vw;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+
+.brand span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: white;
+  background: var(--terracotta);
+}
+
+.cta {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0 19px;
+  color: white;
+  background: var(--sage);
+  font-weight: 700;
+}
+
+.document {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 82px 24px 110px;
+}
+
+.kicker {
+  margin-bottom: 16px;
+  color: var(--terracotta);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.document h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.8rem, 7vw, 5.6rem);
+  font-weight: 500;
+  line-height: 0.98;
+  letter-spacing: -0.045em;
+}
+
+.draft {
+  width: fit-content;
+  margin: 24px 0;
+  border: 1px solid rgba(184, 98, 66, 0.3);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #8b472f;
+  background: rgba(184, 98, 66, 0.08);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.lead {
+  margin: 24px 0 58px;
+  color: #55574f;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  line-height: 1.55;
+}
+
+.document h2 {
+  margin: 40px 0 10px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.45rem;
+}
+
+.document p,
+.document li {
+  color: #5c5e55;
+  line-height: 1.72;
+}
+
+.document ul {
+  display: grid;
+  gap: 9px;
+  margin-left: 22px;
+}
+
+.statusGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.statusGrid section {
+  border: 1px solid rgba(40, 41, 33, 0.11);
+  border-radius: 18px;
+  padding: 24px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.statusGrid strong {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--sage);
+}
+
+.betaActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+  margin-top: 38px;
+}
+
+.betaActions > a:not(.cta) {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.footer {
+  display: flex;
+  justify-content: center;
+  gap: 28px;
+  border-top: 1px solid rgba(40, 41, 33, 0.11);
+  padding: 32px 20px;
+  color: #62645c;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 660px) {
+  .header { padding: 0 18px; }
+  .document { padding: 60px 20px 82px; }
+  .statusGrid { grid-template-columns: 1fr; }
+  .footer { flex-wrap: wrap; }
+}

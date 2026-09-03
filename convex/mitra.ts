@@ -69,6 +69,42 @@ export const addParent = mutation({
   handler: async (ctx, args) => ctx.db.insert("parents", args),
 });
 
+export const updateParent = mutation({
+  args: {
+    ownerKey: v.string(),
+    parentId: v.id("parents"),
+    name: v.string(),
+    relationship: v.union(
+      v.literal("Mother"),
+      v.literal("Father"),
+      v.literal("Other"),
+    ),
+    childDisplayName: v.string(),
+    salutation: v.string(),
+    preferredLanguage: v.union(
+      v.literal("English"),
+      v.literal("Hindi"),
+      v.literal("Hinglish"),
+    ),
+    context: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const parent = await ctx.db.get(args.parentId);
+    if (!parent || parent.ownerKey !== args.ownerKey) {
+      throw new Error("Parent not found");
+    }
+    await ctx.db.patch(parent._id, {
+      name: args.name.trim(),
+      relationship: args.relationship,
+      childDisplayName: args.childDisplayName.trim(),
+      salutation: args.salutation.trim(),
+      preferredLanguage: args.preferredLanguage,
+      context: args.context?.trim() || undefined,
+    });
+    return parent._id;
+  },
+});
+
 export const createRoutine = mutation({
   args: {
     ownerKey: v.string(),

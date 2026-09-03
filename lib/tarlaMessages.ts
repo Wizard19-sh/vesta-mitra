@@ -1,4 +1,5 @@
 import { getRecipe } from "./tarlaRecipes";
+import { naturalizeCookMessage } from "./tarlaMessageFormatting";
 import type { CalculatedPlanItem } from "./tarlaPlanner";
 import type { CalculatedDayMeal } from "./tarlaDayPlanner";
 
@@ -44,13 +45,13 @@ export function composeCookInstruction(input: {
   const revision = input.revisedBecause
     ? [`Revised because ${input.revisedBecause}.`]
     : [];
-  return [
+  return naturalizeCookMessage([
     `${title} (${servings}):`,
     ...lines,
     ...notes,
     ...restrictions,
     ...revision,
-  ].join("\n");
+  ].join("\n"));
 }
 
 export function composeRecipeQuestionReply(recipeId: string) {
@@ -75,7 +76,7 @@ export function composeDayCookInstruction(input: {
   const notes = input.memberNotes.map(
     ({ memberName, note }) => `- ${memberName}: ${note}`,
   );
-  return [
+  return naturalizeCookMessage([
     `${input.visitLabel} — ${input.targetDate}`,
     ...mealLines,
     ...notes,
@@ -85,7 +86,7 @@ export function composeDayCookInstruction(input: {
     ...(input.revisedBecause
       ? [`Revised because ${input.revisedBecause}.`]
       : []),
-  ].join("\n");
+  ].join("\n"));
 }
 
 function quantityNote(item: CalculatedPlanItem) {

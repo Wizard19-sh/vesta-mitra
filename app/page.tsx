@@ -9,6 +9,8 @@ import {
   type Language,
   type Topic,
 } from "../lib/composeCheckIn";
+import { getOrCreateLegacyMitraCredential } from "../lib/aeviaSession";
+import { AeviaLanding } from "./AeviaLanding";
 import styles from "./page.module.css";
 
 const SAMPLE_RESPONSE =
@@ -43,13 +45,13 @@ type RoutineDraft = {
 };
 
 export default function Home() {
-  const [ownerKey] = useState<string | undefined>(() => {
-    if (typeof window === "undefined") return undefined;
-    const existing = window.localStorage.getItem("mitra-owner-key");
-    const key = existing ?? window.crypto.randomUUID();
-    if (!existing) window.localStorage.setItem("mitra-owner-key", key);
-    return key;
-  });
+  return <AeviaLanding />;
+}
+
+export function LegacyMitraJourney() {
+  const [ownerKey] = useState<string | undefined>(() =>
+    getOrCreateLegacyMitraCredential(),
+  );
   const [step, setStep] = useState<Step>("landing");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");

@@ -1,0 +1,235 @@
+.shell {
+  --paper: #fffdf8;
+  --cream: #f4eee3;
+  --charcoal: #292a24;
+  --muted: #6a6b63;
+  --sage: #414b38;
+  --terracotta: #b86343;
+  min-height: 100vh;
+  color: var(--charcoal);
+  background: var(--cream);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.loading,
+.empty {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: 20px;
+  justify-items: center;
+  padding: 24px;
+  background: #f4eee3;
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.header {
+  min-height: 94px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  border-bottom: 1px solid rgba(41, 42, 36, 0.1);
+  padding: 0 4vw;
+}
+
+.back { width: fit-content; color: #5d5f56; font-size: 0.84rem; }
+.header > div { text-align: center; }
+.header > div p { color: var(--terracotta); font-size: 0.68rem; font-weight: 800; letter-spacing: 0.11em; text-transform: uppercase; }
+.header h1 { margin-top: 3px; font-family: Georgia, serif; font-size: 1.55rem; }
+.header > span { justify-self: end; color: var(--muted); font-size: 0.79rem; }
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(250px, 330px) minmax(0, 1fr);
+  min-height: calc(100vh - 94px);
+}
+
+.runList {
+  border-right: 1px solid rgba(41, 42, 36, 0.1);
+  padding: 30px 18px;
+  background: rgba(233, 226, 214, 0.55);
+}
+
+.kicker {
+  color: var(--terracotta);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.runList > .kicker { margin: 0 10px 14px; }
+
+.runList button {
+  width: 100%;
+  display: grid;
+  gap: 5px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  border-radius: 13px;
+  padding: 15px;
+  text-align: left;
+  color: var(--charcoal);
+  background: transparent;
+  cursor: pointer;
+}
+
+.runList button > span { color: var(--terracotta); font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
+.runList button strong { font-size: 0.84rem; }
+.runList button small { color: var(--muted); font-size: 0.7rem; }
+.runList .selected { border-color: rgba(65, 75, 56, 0.16); background: var(--paper); box-shadow: 0 8px 25px rgba(54, 48, 39, 0.06); }
+.noRuns { padding: 18px 10px; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+
+.trace {
+  padding: 42px clamp(24px, 5vw, 76px) 90px;
+}
+
+.traceEmpty {
+  min-height: 420px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.runHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.runHeader h2 {
+  max-width: 750px;
+  margin-top: 9px;
+  overflow-wrap: anywhere;
+  font-family: Georgia, serif;
+  font-size: clamp(1.6rem, 3vw, 2.5rem);
+  font-weight: 500;
+}
+
+.status {
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: #4f5847;
+  background: #e5eadc;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 32px 0 20px;
+  border: 1px solid rgba(41, 42, 36, 0.1);
+  border-radius: 15px;
+  overflow: hidden;
+}
+
+.metrics > div {
+  border-right: 1px solid rgba(41, 42, 36, 0.1);
+  padding: 16px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.metrics > div:last-child { border-right: 0; }
+.metrics dt { margin-bottom: 5px; color: var(--muted); font-size: 0.68rem; }
+.metrics dd { font-size: 0.8rem; font-weight: 800; }
+
+.runSummary,
+.runError {
+  border-left: 3px solid var(--sage);
+  border-radius: 4px 12px 12px 4px;
+  padding: 15px 17px;
+  background: rgba(65, 75, 56, 0.07);
+}
+
+.runError { border-color: #a64a37; background: rgba(166, 74, 55, 0.07); }
+.runSummary strong,
+.runError strong { display: block; margin-bottom: 4px; font-size: 0.72rem; }
+.runSummary p,
+.runError p { color: #5d5f56; font-size: 0.79rem; line-height: 1.45; }
+
+.steps {
+  margin-top: 36px;
+}
+
+.stepHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.stepHeading h3 { font-family: Georgia, serif; font-size: 1.35rem; }
+.stepHeading span { color: var(--muted); font-size: 0.72rem; }
+
+.steps article {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 14px;
+  position: relative;
+}
+
+.steps article:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 20px;
+  top: 42px;
+  bottom: 0;
+  width: 1px;
+  background: rgba(41, 42, 36, 0.13);
+}
+
+.order {
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(41, 42, 36, 0.13);
+  border-radius: 50%;
+  color: var(--terracotta);
+  background: var(--cream);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.stepBody {
+  margin-bottom: 13px;
+  border: 1px solid rgba(41, 42, 36, 0.09);
+  border-radius: 13px;
+  padding: 15px 17px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.stepBody > div { display: flex; justify-content: space-between; gap: 12px; }
+.stepBody h4 { font-size: 0.86rem; }
+.stepBody > div span { color: #58604f; font-size: 0.68rem; font-weight: 800; }
+.stepBody p { margin-top: 9px; color: var(--muted); font-size: 0.77rem; line-height: 1.45; }
+.stepBody small { display: block; margin-top: 10px; color: #86877f; font-size: 0.66rem; }
+.stepBody .errorText { color: #913f2f; }
+.maskNote { margin: 22px 0 0 56px; color: #7a7b73; font-size: 0.7rem; line-height: 1.45; }
+
+@media (max-width: 850px) {
+  .header { grid-template-columns: 1fr auto; padding: 0 20px; }
+  .header > div { text-align: right; }
+  .header > span { display: none; }
+  .workspace { grid-template-columns: 1fr; }
+  .runList { display: flex; gap: 8px; overflow-x: auto; border-right: 0; border-bottom: 1px solid rgba(41, 42, 36, 0.1); padding: 15px; }
+  .runList > .kicker { display: none; }
+  .runList button { flex: 0 0 230px; margin: 0; }
+  .noRuns { flex: 1 0 100%; }
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .metrics > div:nth-child(2) { border-right: 0; }
+  .metrics > div:nth-child(-n + 2) { border-bottom: 1px solid rgba(41, 42, 36, 0.1); }
+}
+
+@media (max-width: 520px) {
+  .trace { padding: 32px 17px 70px; }
+  .runHeader { display: grid; }
+  .metrics { grid-template-columns: 1fr; }
+  .metrics > div { border-right: 0; border-bottom: 1px solid rgba(41, 42, 36, 0.1); }
+  .metrics > div:last-child { border-bottom: 0; }
+  .maskNote { margin-left: 0; }
+}

@@ -112,6 +112,57 @@ export const addMember = mutation({
   },
 });
 
+export const updateMember = mutation({
+  args: {
+    ownerKey: v.string(),
+    householdId: v.id("households"),
+    memberId: v.id("members"),
+    name: v.optional(v.string()),
+    role: v.optional(v.string()),
+    age: v.optional(v.number()),
+    sex: v.optional(v.string()),
+    heightCm: v.optional(v.number()),
+    weightKg: v.optional(v.number()),
+    languagePreference: v.optional(v.string()),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ownedHousehold(ctx, args.householdId, args.ownerKey);
+    await householdMember(ctx, args.memberId, args.householdId);
+    optionalPositiveNumber(args.age, "Age");
+    optionalPositiveNumber(args.heightCm, "Height");
+    optionalPositiveNumber(args.weightKg, "Weight");
+    await ctx.db.patch(args.memberId, {
+      ...(args.name === undefined
+        ? {}
+        : { name: requiredText(args.name, "Member name", 120) }),
+      ...(args.role === undefined
+        ? {}
+        : { role: requiredText(args.role, "Member role", 80) }),
+      ...(args.age === undefined ? {} : { age: args.age }),
+      ...(args.sex === undefined
+        ? {}
+        : { sex: optionalText(args.sex, "Sex", 80) }),
+      ...(args.heightCm === undefined ? {} : { heightCm: args.heightCm }),
+      ...(args.weightKg === undefined ? {} : { weightKg: args.weightKg }),
+      ...(args.languagePreference === undefined
+        ? {}
+        : {
+            languagePreference: optionalText(
+              args.languagePreference,
+              "Language preference",
+              80,
+            ),
+          }),
+      ...(args.notes === undefined
+        ? {}
+        : { notes: optionalText(args.notes, "Member notes", 2_000) }),
+      updatedAt: Date.now(),
+    });
+    return args.memberId;
+  },
+});
+
 export const listMembers = query({
   args: {
     ownerKey: v.string(),
@@ -281,6 +332,37 @@ export const addCommunicationEndpoint = mutation({
       createdAt: now,
       updatedAt: now,
     });
+  },
+});
+
+export const updateCommunicationEndpoint = mutation({
+  args: {
+    ownerKey: v.string(),
+    endpointId: v.id("communicationEndpoints"),
+    memberId: v.id("members"),
+    channel: v.string(),
+    address: v.string(),
+    preferredLanguage: v.optional(v.string()),
+    preferredMode,
+  },
+  handler: async (ctx, args) => {
+    const endpoint = await ctx.db.get(args.endpointId);
+    if (!endpoint) throw new Error("Communication endpoint not found");
+    await ownedHousehold(ctx, endpoint.householdId, args.ownerKey);
+    await householdMember(ctx, args.memberId, endpoint.householdId);
+    await ctx.db.patch(endpoint._id, {
+      memberId: args.memberId,
+      channel: requiredText(args.channel, "Channel", 80),
+      address: requiredText(args.address, "Endpoint address", 500),
+      preferredLanguage: optionalText(
+        args.preferredLanguage,
+        "Preferred language",
+        80,
+      ),
+      preferredMode: args.preferredMode,
+      updatedAt: Date.now(),
+    });
+    return endpoint._id;
   },
 });
 

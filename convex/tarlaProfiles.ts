@@ -306,6 +306,94 @@ export const addDietaryRule = mutation({
   },
 });
 
+export const setTuesdayVegetarianRule = mutation({
+  args: {
+    ownerKey: v.string(),
+    householdId: v.id("households"),
+    active: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    await requireHousehold(ctx, args.householdId, args.ownerKey);
+    const rules = await ctx.db
+      .query("tarlaDietaryRules")
+      .withIndex("by_household", (q) => q.eq("householdId", args.householdId))
+      .collect();
+    const matching = rules.filter(
+      (rule) =>
+        rule.ruleType === "vegetarian_days" &&
+        rule.memberId === undefined &&
+        rule.daysOfWeek?.length === 1 &&
+        rule.daysOfWeek[0] === 2,
+    );
+    const now = Date.now();
+    if (!args.active) {
+      await Promise.all(
+        matching
+          .filter((rule) => rule.active)
+          .map((rule) => ctx.db.patch(rule._id, { active: false, updatedAt: now })),
+      );
+      return matching[0]?._id ?? null;
+    }
+    const existing = matching[0];
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        active: true,
+        description: "Household meals are vegetarian on Tuesday.",
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return ctx.db.insert("tarlaDietaryRules", {
+      householdId: args.householdId,
+      ruleType: "vegetarian_days",
+      daysOfWeek: [2],
+      description: "Household meals are vegetarian on Tuesday.",
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const reassignCook = mutation({
+  args: {
+    ownerKey: v.string(),
+    cookStateId: v.id("tarlaCookStates"),
+    memberId: v.id("members"),
+  },
+  handler: async (ctx, args) => {
+    const state = await ctx.db.get(args.cookStateId);
+    if (!state) throw new Error("Cook state not found");
+    await requireHousehold(ctx, state.householdId, args.ownerKey);
+    await requireMember(ctx, args.memberId, state.householdId);
+    if (state.memberId === args.memberId) return state._id;
+    const conflict = await ctx.db
+      .query("tarlaCookStates")
+      .withIndex("by_member", (q) => q.eq("memberId", args.memberId))
+      .unique();
+    if (conflict && conflict._id !== state._id) {
+      throw new Error("The selected cooking person already has a cook setup");
+    }
+    const endpoint = await ctx.db.get(state.communicationEndpointId);
+    if (!endpoint || endpoint.householdId !== state.householdId) {
+      throw new Error("Cook communication endpoint was not found");
+    }
+    const visits = await ctx.db
+      .query("tarlaCookVisits")
+      .withIndex("by_cook_state", (q) => q.eq("cookStateId", state._id))
+      .collect();
+    const now = Date.now();
+    await Promise.all([
+      ctx.db.patch(state._id, { memberId: args.memberId, updatedAt: now }),
+      ctx.db.patch(endpoint._id, { memberId: args.memberId, updatedAt: now }),
+      ...visits.map((visit) =>
+        ctx.db.patch(visit._id, { cookMemberId: args.memberId, updatedAt: now }),
+      ),
+    ]);
+    return state._id;
+  },
+});
+
 export const configureCook = mutation({
   args: {
     ownerKey: v.string(),
@@ -319,10 +407,10 @@ export const configureCook = mutation({
   },
   handler: async (ctx, args) => {
     await requireHousehold(ctx, args.householdId, args.ownerKey);
-    const member = await requireMember(ctx, args.memberId, args.householdId);
-    if (member.role.toLocaleLowerCase() !== "cook") {
-      throw new Error("Tarla cook setup requires a member with the cook role");
-    }
+    await requireMember(ctx, args.memberId, args.householdId);
+    // Any household member may be the cooking person. Their relationship and
+    // communication tone determine how Tarla speaks; the durable member role
+    // should not be rewritten just to satisfy kitchen setup.
     const endpoint = await ctx.db.get(args.communicationEndpointId);
     if (
       !endpoint ||
@@ -436,9 +524,30 @@ export const configureCookVisits = mutation({
       .withIndex("by_cook_state", (q) => q.eq("cookStateId", cookState._id))
       .collect();
     const now = Date.now();
+    const activeExisting = existing.filter((visit) => visit.active);
+    const unchanged =
+      cookState.visitFrequency === args.frequency &&
+      activeExisting.length === normalized.length &&
+      activeExisting.every((visit, index) => {
+        const expected = normalized[index];
+        return (
+          expected !== undefined &&
+          visit.label === expected.label &&
+          JSON.stringify(visit.daysOfWeek) === JSON.stringify(expected.daysOfWeek) &&
+          visit.arrivalTime === expected.arrivalTime &&
+          visit.timezone === expected.timezone &&
+          visit.instructionLeadMinutes === expected.instructionLeadMinutes &&
+          JSON.stringify(visit.mealSlots) === JSON.stringify(expected.mealSlots)
+        );
+      });
+    if (unchanged) {
+      return {
+        frequency: args.frequency,
+        visitIds: activeExisting.map((visit) => visit._id),
+      };
+    }
     await Promise.all(
-      existing
-        .filter((visit) => visit.active)
+      activeExisting
         .map((visit) => ctx.db.patch(visit._id, { active: false, updatedAt: now })),
     );
     const visitIds = await Promise.all(

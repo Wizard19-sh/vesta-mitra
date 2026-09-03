@@ -202,6 +202,85 @@ export const createScheduledRoutine = mutation({
   },
 });
 
+export const updateScheduledRoutine = mutation({
+  args: {
+    ownerKey: v.string(),
+    routineId: v.id("routines"),
+    type: routineType,
+    label: v.string(),
+    timing,
+    customMessage: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const routine = await ctx.db.get(args.routineId);
+    if (!routine || routine.ownerKey !== args.ownerKey || !routine.householdId) {
+      throw new Error("Routine not found");
+    }
+    const household = await requireHousehold(
+      ctx,
+      routine.householdId,
+      args.ownerKey,
+    );
+    if (args.timing.timezone !== household.timezone) {
+      throw new Error("Routine timezone must match the household timezone");
+    }
+    const normalizedTiming = args.timing as RoutineTiming;
+    const timingChanged =
+      JSON.stringify(routine.timing) !== JSON.stringify(normalizedTiming);
+    const label = requiredText(args.label, "Routine label", 160);
+    const customMessage = optionalText(args.customMessage, "Custom message", 500);
+    const now = Date.now();
+
+    if (!timingChanged) {
+      await ctx.db.patch(routine._id, {
+        type: args.type,
+        topics: [args.type],
+        customTopic: args.type === "Custom" ? label : undefined,
+        prompt: customMessage ?? label,
+        label,
+        updatedAt: now,
+      });
+      return {
+        routineId: routine._id,
+        nextOccurrenceAt: routine.nextOccurrenceAt,
+        scheduledJobId: routine.scheduledJobId,
+        rescheduled: false,
+      };
+    }
+
+    const nextOccurrenceAt = firstOccurrenceAt(normalizedTiming);
+    if (routine.scheduledJobId) {
+      await ctx.scheduler.cancel(
+        routine.scheduledJobId as Id<"_scheduled_functions">,
+      );
+    }
+    const scheduledJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
+      nextOccurrenceAt,
+      internal.mitraRuntime.triggerRoutine,
+      { routineId: routine._id, scheduledFor: nextOccurrenceAt },
+    );
+    await ctx.db.patch(routine._id, {
+      type: args.type,
+      topics: [args.type],
+      customTopic: args.type === "Custom" ? label : undefined,
+      frequency: legacyFrequency(normalizedTiming),
+      schedule: legacyScheduleFromTiming(normalizedTiming, nextOccurrenceAt),
+      prompt: customMessage ?? label,
+      label,
+      timing: normalizedTiming,
+      nextOccurrenceAt,
+      scheduledJobId: String(scheduledJobId),
+      updatedAt: now,
+    });
+    return {
+      routineId: routine._id,
+      nextOccurrenceAt,
+      scheduledJobId,
+      rescheduled: true,
+    };
+  },
+});
+
 export const getRoutine = query({
   args: { ownerKey: v.string(), routineId: v.id("routines") },
   handler: async (ctx, { ownerKey, routineId }) => {

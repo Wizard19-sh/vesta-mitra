@@ -12,6 +12,10 @@
     "verify:w3": "node scripts/verify-w3.mjs",
     "verify:w3.1": "node scripts/verify-w3-1.mjs",
     "verify:w4": "node scripts/verify-w4.mjs",
+    "verify:m0": "node scripts/verify-m0.mjs",
+    "verify:m0:browser": "playwright test tests/browser/m0-stability.spec.ts",
+    "verify:m5": "node scripts/verify-m5.mjs",
+    "verify:m5:route": "node scripts/verify-m5-route.mjs",
     "verify:w4:meta:prepare": "node scripts/verify-w4-meta-live.mjs prepare",
     "verify:w4:meta:retry": "node scripts/verify-w4-meta-live.mjs retry",
     "verify:w4:meta:inspect": "node scripts/verify-w4-meta-live.mjs inspect",
@@ -27,6 +31,7 @@
     "twilio": "^6.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
