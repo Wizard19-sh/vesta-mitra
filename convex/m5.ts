@@ -63,7 +63,15 @@ export const createOrUpdateIdentity = mutation({
           timezone,
           updatedAt: now,
         }),
-        ctx.db.patch(member._id, { name, updatedAt: now }),
+        ctx.db.patch(member._id, {
+          name,
+          relationship: member.relationship ?? "Self",
+          lifeStage: member.lifeStage ?? "adult",
+          preferredSalutation: member.preferredSalutation ?? name,
+          memberKind: member.memberKind ?? "household",
+          active: true,
+          updatedAt: now,
+        }),
         ctx.db.patch(existing._id, {
           name,
           email,
@@ -93,6 +101,11 @@ export const createOrUpdateIdentity = mutation({
       householdId,
       name,
       role: "primary user",
+      relationship: "Self",
+      lifeStage: "adult",
+      preferredSalutation: name,
+      memberKind: "household",
+      active: true,
       languagePreference: "English",
       createdAt: now,
       updatedAt: now,
@@ -197,51 +210,63 @@ export const getSession = query({
         item.active &&
         (item.expiresAt === undefined || item.expiresAt > now),
     );
-    const routine = routines.find(
-      (item) => item.w2Enabled && item.memberId && item.communicationEndpointId,
-    );
-    const parent = routine
-      ? parents.find((item) => item._id === routine.parentId)
-      : undefined;
-    const mitraMember = routine
-      ? members.find((item) => item._id === routine.memberId)
-      : undefined;
-    const mitraEndpoint = routine
-      ? endpoints.find((item) => item._id === routine.communicationEndpointId)
-      : undefined;
-    const mitraState = routine
-      ? mitraStates.find((item) => item.memberId === routine.memberId)
-      : undefined;
+    const activeMembers = members.filter((item) => item.active !== false);
+    const activeMemberIds = new Set(activeMembers.map((item) => String(item._id)));
+    const mitraPeople = parents
+      .filter((parent) => parent.memberId && activeMemberIds.has(String(parent.memberId)))
+      .map((parent) => {
+        const targetMember = activeMembers.find((item) => item._id === parent.memberId)!;
+        const caretakerMember = parent.caretakerMemberId
+          ? activeMembers.find((item) => item._id === parent.caretakerMemberId) ?? null
+          : null;
+        return {
+          member: targetMember,
+          parent,
+          caretakerMember,
+          directEndpoint:
+            endpoints.find(
+              (endpoint) => endpoint.memberId === targetMember._id && endpoint.channel === "whatsapp" && endpoint.active,
+            ) ?? null,
+          caretakerEndpoint: caretakerMember
+            ? endpoints.find(
+                (endpoint) => endpoint.memberId === caretakerMember._id && endpoint.channel === "whatsapp" && endpoint.active,
+              ) ?? null
+            : null,
+          readiness:
+            mitraStates.find((item) => item.memberId === targetMember._id)?.readiness ??
+            "not_introduced",
+          routines: routines.filter(
+            (routine) => routine.memberId === targetMember._id && routine.w2Enabled,
+          ),
+        };
+      })
+      .filter((item) => item.routines.length > 0);
 
-    const cookState = [...tarlaCookStates].sort(
-      (left, right) => right.updatedAt - left.updatedAt,
-    )[0];
-    const cookMember = cookState
-      ? members.find((item) => item._id === cookState.memberId)
-      : undefined;
-    const cookEndpoint = cookState
-      ? endpoints.find((item) => item._id === cookState.communicationEndpointId)
-      : undefined;
-    const activeCookVisits = cookState
-      ? tarlaCookVisits.filter(
-          (visit) => visit.cookStateId === cookState._id && visit.active,
-        )
-      : [];
+    const activeCookStates = tarlaCookStates.filter((item) => item.active !== false);
+    const cookingPeople = activeCookStates.map((cookState) => ({
+      cookState,
+      member: activeMembers.find((item) => item._id === cookState.memberId) ?? null,
+      endpoint:
+        endpoints.find((item) => item._id === cookState.communicationEndpointId) ?? null,
+      visits: tarlaCookVisits.filter(
+        (visit) => visit.cookStateId === cookState._id && visit.active,
+      ),
+    }));
+    const cookState = activeCookStates[0];
+    const cookMember = cookingPeople[0]?.member ?? undefined;
+    const cookEndpoint = cookingPeople[0]?.endpoint ?? undefined;
+    const activeCookVisits = cookingPeople[0]?.visits ?? [];
     const tarlaPrimaryProfile = tarlaMemberProfiles.find(
-      (item) => item.memberId === member._id,
+      (item) => item.memberId === member._id && item.includedInPlanning !== false,
     );
-    const adultMember = members.find(
-      (item) =>
-        item._id !== member._id &&
-        item._id !== cookState?.memberId &&
-        item.role === "adult" &&
-        tarlaMemberProfiles.some((profileItem) => profileItem.memberId === item._id),
-    );
-    const childMember = members.find(
-      (item) =>
-        item.role === "child" &&
-        tarlaMemberProfiles.some((profileItem) => profileItem.memberId === item._id),
-    );
+    const eaterProfiles = tarlaMemberProfiles
+      .filter(
+        (item) => item.includedInPlanning !== false && activeMemberIds.has(String(item.memberId)),
+      )
+      .map((profileItem) => ({
+        member: activeMembers.find((item) => item._id === profileItem.memberId)!,
+        profile: profileItem,
+      }));
     const sharedContext = activePreferences.find(
       (item) =>
         item.category === "household_context" &&
@@ -253,37 +278,52 @@ export const getSession = query({
     const foodPreference = activePreferences.find(
       (item) => item.category === "tarla_onboarding" && item.key === "food_context",
     );
-    const hasMitra = Boolean(routine && parent && mitraMember && mitraEndpoint);
-    const hasTarla = Boolean(tarlaHouseholdProfile || tarlaPrimaryProfile || cookState);
+    const agentChoicePreference = activePreferences.find(
+      (item) => item.category === "household_setup" && item.key === "specialists",
+    );
+    const hasMitra = mitraPeople.length > 0;
+    const hasTarla = Boolean(tarlaHouseholdProfile || eaterProfiles.length || activeCookStates.length);
+    const inferredChoice = hasMitra && hasTarla ? "both" : hasTarla ? "tarla" : "mitra";
+    const agentChoice =
+      agentChoicePreference?.value === "both" ||
+      agentChoicePreference?.value === "tarla" ||
+      agentChoicePreference?.value === "mitra"
+        ? agentChoicePreference.value
+        : inferredChoice;
 
     return {
       profile,
       household,
       member,
       setup: {
-        agentChoice: hasMitra && hasTarla ? "both" : hasTarla ? "tarla" : "mitra",
+        members: activeMembers,
+        hasSpecialistSetup: hasMitra || hasTarla,
+        agentChoice,
         sharedContext: sharedContext?.value ?? "",
-        mitra:
-          hasMitra && routine && parent && mitraMember && mitraEndpoint
-            ? {
-                member: mitraMember,
-                parent,
-                endpoint: mitraEndpoint,
-                readiness: mitraState?.readiness ?? "not_introduced",
-                routine,
-              }
-            : null,
+        mitraPeople,
+        mitra: mitraPeople[0]
+          ? {
+              ...mitraPeople[0],
+              endpoint:
+                mitraPeople[0].parent.coordinationMode === "caretaker"
+                  ? mitraPeople[0].caretakerEndpoint
+                  : mitraPeople[0].directEndpoint,
+              routine: mitraPeople[0].routines[0],
+            }
+          : null,
         tarla: hasTarla
           ? {
               householdProfile: tarlaHouseholdProfile,
               primaryProfile: tarlaPrimaryProfile,
-              adultMember: adultMember ?? null,
-              childMember: childMember ?? null,
+              eaterProfiles,
+              cookingPeople,
               cookState: cookState ?? null,
               cookMember: cookMember ?? null,
               cookEndpoint: cookEndpoint ?? null,
               cookVisits: activeCookVisits,
-              dietaryRules: tarlaRules.filter((item) => item.active),
+              dietaryRules: tarlaRules.filter(
+                (item) => item.active && (item.expiresAt === undefined || item.expiresAt > now),
+              ),
               cuisines: cuisinePreference?.value ?? "",
               foodContext: foodPreference?.value ?? "",
               latestDayPlan: tarlaDayPlans[0] ?? null,
@@ -303,7 +343,7 @@ export const getDashboard = query({
       .unique();
     if (!profile) return null;
     const household = await requireHousehold(ctx, profile.householdId, ownerKey);
-    const [primaryMember, members, preferences, endpoints, routines, dayPlans, runs, cookVisits] =
+    const [primaryMember, members, preferences, endpoints, parents, routines, dayPlans, runs, tarlaProfiles, tarlaRules, cookStates, cookVisits] =
       await Promise.all([
         ctx.db.get(profile.memberId),
         ctx.db
@@ -316,6 +356,10 @@ export const getDashboard = query({
           .collect(),
         ctx.db
           .query("communicationEndpoints")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .collect(),
+        ctx.db
+          .query("parents")
           .withIndex("by_household", (q) => q.eq("householdId", household._id))
           .collect(),
         ctx.db
@@ -333,6 +377,18 @@ export const getDashboard = query({
           .withIndex("by_household", (q) => q.eq("householdId", household._id))
           .order("desc")
           .take(12),
+        ctx.db
+          .query("tarlaMemberProfiles")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .collect(),
+        ctx.db
+          .query("tarlaDietaryRules")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .collect(),
+        ctx.db
+          .query("tarlaCookStates")
+          .withIndex("by_household", (q) => q.eq("householdId", household._id))
+          .collect(),
         ctx.db
           .query("tarlaCookVisits")
           .withIndex("by_household", (q) => q.eq("householdId", household._id))
@@ -358,7 +414,7 @@ export const getDashboard = query({
       },
       household,
       primaryMember,
-      members,
+      members: members.filter((item) => item.active !== false),
       preferences: preferences.filter(
         (item) =>
           item.active &&
@@ -376,6 +432,12 @@ export const getDashboard = query({
           provider: endpoint.providerMetadata?.provider ?? "development",
         })),
       routines,
+      parents,
+      tarlaProfiles: tarlaProfiles.filter((item) => item.includedInPlanning !== false),
+      tarlaRules: tarlaRules.filter(
+        (item) => item.active && (item.expiresAt === undefined || item.expiresAt > now),
+      ),
+      cookStates: cookStates.filter((item) => item.active !== false),
       latestInstances,
       dayPlans,
       runs,

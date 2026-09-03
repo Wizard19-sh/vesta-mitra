@@ -61,10 +61,12 @@ export const triggerRoutine = internalMutation({
       "Accepted a unique scheduled occurrence",
     );
 
-    const [household, member, parent, endpoint, readiness, preferences] =
+    const recipientMemberId = routine.recipientMemberId ?? routine.memberId;
+    const [household, member, recipientMember, parent, endpoint, readiness, preferences] =
       await Promise.all([
         ctx.db.get(routine.householdId),
         ctx.db.get(routine.memberId),
+        ctx.db.get(recipientMemberId),
         ctx.db.get(routine.parentId),
         ctx.db.get(routine.communicationEndpointId),
         ctx.db
@@ -78,7 +80,7 @@ export const triggerRoutine = internalMutation({
           )
           .collect(),
       ]);
-    if (!household || !member || !parent || !endpoint) {
+    if (!household || !member || !recipientMember || !parent || !endpoint) {
       throw new Error("Scheduled routine context was not found");
     }
     if (readiness?.readiness !== "ready") {
@@ -127,20 +129,21 @@ export const triggerRoutine = internalMutation({
     const language = resolveLanguage(
       activePreferences,
       endpoint.preferredLanguage,
-      member.languagePreference,
+      recipientMember.languagePreference,
       parent.preferredLanguage,
     );
     const salutation = resolveSalutation(activePreferences, parent);
-    const message = composeRoutineMessage({
-      salutation,
-      language,
-      style: resolveStyle(parent.conversationStyle),
-      routineType: runtimeRoutineType(routine.type),
-      label: routine.label ?? routine.prompt,
-      customMessage:
-        routine.prompt !== routine.label ? routine.prompt : undefined,
-      isFirstContact: false,
-    });
+    const message =
+      routine.prompt !== routine.label
+        ? routine.prompt
+        : composeRoutineMessage({
+            salutation,
+            language,
+            style: resolveStyle(parent.conversationStyle),
+            routineType: runtimeRoutineType(routine.type),
+            label: routine.label ?? routine.prompt,
+            isFirstContact: false,
+          });
     await addCompletedStep(
       ctx,
       runId,
@@ -152,7 +155,7 @@ export const triggerRoutine = internalMutation({
 
     const sent = await getMessageTransport(ctx).sendMessage({
       recipient: {
-        memberId: String(member._id),
+        memberId: String(recipientMember._id),
         endpointId: String(endpoint._id),
         address: endpoint.address,
       },

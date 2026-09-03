@@ -65,6 +65,14 @@ export const addParent = mutation({
     ),
     primaryIntentOther: v.optional(v.string()),
     context: v.optional(v.string()),
+    coordinationMode: v.optional(
+      v.union(
+        v.literal("senior_directly"),
+        v.literal("caretaker"),
+        v.literal("both"),
+      ),
+    ),
+    caretakerMemberId: v.optional(v.id("members")),
   },
   handler: async (ctx, args) => ctx.db.insert("parents", args),
 });
@@ -87,6 +95,14 @@ export const updateParent = mutation({
       v.literal("Hinglish"),
     ),
     context: v.optional(v.string()),
+    coordinationMode: v.optional(
+      v.union(
+        v.literal("senior_directly"),
+        v.literal("caretaker"),
+        v.literal("both"),
+      ),
+    ),
+    caretakerMemberId: v.optional(v.id("members")),
   },
   handler: async (ctx, args) => {
     const parent = await ctx.db.get(args.parentId);
@@ -100,6 +116,8 @@ export const updateParent = mutation({
       salutation: args.salutation.trim(),
       preferredLanguage: args.preferredLanguage,
       context: args.context?.trim() || undefined,
+      coordinationMode: args.coordinationMode,
+      caretakerMemberId: args.caretakerMemberId,
     });
     return parent._id;
   },

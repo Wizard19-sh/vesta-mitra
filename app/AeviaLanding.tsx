@@ -144,7 +144,7 @@ export function AeviaLanding() {
             <Link href="/beta">Beta</Link>
           </nav>
           <Link className={styles.navCta} href="/onboarding" data-analytics-id="meet_aevia_clicked" onClick={() => void track("cta_clicked", { route: "/", outcome: "header" })}>
-            Meet Aevia
+            Hello Aevia
           </Link>
         </div>
       </header>
@@ -158,7 +158,7 @@ export function AeviaLanding() {
             <p className={styles.heroBody}>Aevia remembers how your household works and handles the everyday follow-through — from your parents’ routines to what gets cooked at home.</p>
             <div className={styles.heroActions}>
               <Link href="/onboarding" className={styles.primaryButton} data-analytics-id="meet_aevia_clicked" onClick={() => void track("cta_clicked", { route: "/", outcome: "hero" })}>
-                Meet Aevia
+                Hello Aevia
               </Link>
               <a href="#how" className={styles.secondaryButton} data-analytics-id="see_how_it_works_clicked">See how it works</a>
             </div>
@@ -313,7 +313,7 @@ export function AeviaLanding() {
           <div className={styles.finalContent}>
             <p className={styles.eyebrow}>A little less on your mind</p>
             <h2>Less remembering.<br />Less following up.<br /><em>More time for what matters.</em></h2>
-            <Link href="/onboarding" className={styles.finalButton} data-analytics-id="meet_aevia_clicked" onClick={() => void track("cta_clicked", { route: "/", outcome: "footer" })}>Meet Aevia</Link>
+            <Link href="/onboarding" className={styles.finalButton} data-analytics-id="meet_aevia_clicked" onClick={() => void track("cta_clicked", { route: "/", outcome: "footer" })}>Hello Aevia</Link>
           </div>
         </div>
       </section>

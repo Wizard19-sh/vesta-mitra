@@ -43,7 +43,7 @@ test("landing matches the approved desktop structure and navigation", async ({
     fullPage: true,
   });
 
-  await page.getByRole("link", { name: "Meet Aevia" }).first().click();
+  await page.getByRole("link", { name: "Hello Aevia" }).first().click();
   await expect(page).toHaveURL(/\/onboarding$/);
 
   for (const [label, route] of [
@@ -73,7 +73,7 @@ test("mobile layout is composed for touch and remains readable", async ({
   const response = await page.goto("/", { waitUntil: "domcontentloaded" });
 
   expect(response?.status()).toBe(200);
-  await expect(page.getByRole("link", { name: "Meet Aevia" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Hello Aevia" }).first()).toBeVisible();
   await expect(page.getByText("English · Hindi · Hinglish").first()).toBeVisible();
   await expectNoPageOverflow(page);
 

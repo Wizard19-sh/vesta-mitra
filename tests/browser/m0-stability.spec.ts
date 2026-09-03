@@ -22,11 +22,11 @@ test("fresh identity continues, Back preserves values, and reload resumes", asyn
       name: /The everyday things you care about/i,
     }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Meet Aevia" }).first().click();
+  await page.getByRole("link", { name: "Hello Aevia" }).first().click();
 
   await expect(
     page.getByRole("heading", {
-      name: "A few details, then one useful action.",
+      name: "Let's start with you.",
     }),
   ).toBeVisible();
   await page.getByLabel("Your name").fill(name);
@@ -37,11 +37,11 @@ test("fresh identity continues, Back preserves values, and reload resumes", asyn
 
   await expect(
     page.getByRole("heading", {
-      name: "What would you like Aevia to take care of?",
+      name: "Who is part of your household?",
     }),
   ).toBeVisible();
   await page.screenshot({
-    path: path.join(artifactDirectory, "identity-to-choice.png"),
+    path: path.join(artifactDirectory, "identity-to-household.png"),
     fullPage: true,
   });
 
@@ -53,14 +53,14 @@ test("fresh identity continues, Back preserves values, and reload resumes", asyn
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(
     page.getByRole("heading", {
-      name: "What would you like Aevia to take care of?",
+      name: "Who is part of your household?",
     }),
   ).toBeVisible();
 
   await page.reload();
   await expect(
     page.getByRole("heading", {
-      name: "What would you like Aevia to take care of?",
+      name: "Who is part of your household?",
     }),
   ).toBeVisible();
 });
@@ -104,7 +104,7 @@ test("storage write and analytics persistence failures do not crash navigation",
       name: /The everyday things you care about/i,
     }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Meet Aevia" }).first().click();
+  await page.getByRole("link", { name: "Hello Aevia" }).first().click();
   await expect(
     page.getByRole("heading", {
       name: "Your setup isn’t available in this browser.",

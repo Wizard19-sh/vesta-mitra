@@ -78,6 +78,14 @@ export const addMember = mutation({
     householdId: v.id("households"),
     name: v.string(),
     role: v.string(),
+    relationship: v.optional(v.string()),
+    lifeStage: v.optional(
+      v.union(v.literal("adult"), v.literal("child"), v.literal("senior")),
+    ),
+    preferredSalutation: v.optional(v.string()),
+    memberKind: v.optional(
+      v.union(v.literal("household"), v.literal("external")),
+    ),
     age: v.optional(v.number()),
     sex: v.optional(v.string()),
     heightCm: v.optional(v.number()),
@@ -96,6 +104,15 @@ export const addMember = mutation({
       householdId: args.householdId,
       name: requiredText(args.name, "Member name", 120),
       role: requiredText(args.role, "Member role", 80),
+      relationship: optionalText(args.relationship, "Relationship", 80),
+      lifeStage: args.lifeStage,
+      preferredSalutation: optionalText(
+        args.preferredSalutation,
+        "Preferred salutation",
+        80,
+      ),
+      memberKind: args.memberKind ?? "household",
+      active: true,
       age: args.age,
       sex: optionalText(args.sex, "Sex", 80),
       heightCm: args.heightCm,
@@ -119,6 +136,14 @@ export const updateMember = mutation({
     memberId: v.id("members"),
     name: v.optional(v.string()),
     role: v.optional(v.string()),
+    relationship: v.optional(v.string()),
+    lifeStage: v.optional(
+      v.union(v.literal("adult"), v.literal("child"), v.literal("senior")),
+    ),
+    preferredSalutation: v.optional(v.string()),
+    memberKind: v.optional(
+      v.union(v.literal("household"), v.literal("external")),
+    ),
     age: v.optional(v.number()),
     sex: v.optional(v.string()),
     heightCm: v.optional(v.number()),
@@ -139,6 +164,27 @@ export const updateMember = mutation({
       ...(args.role === undefined
         ? {}
         : { role: requiredText(args.role, "Member role", 80) }),
+      ...(args.relationship === undefined
+        ? {}
+        : {
+            relationship: optionalText(
+              args.relationship,
+              "Relationship",
+              80,
+            ),
+          }),
+      ...(args.lifeStage === undefined ? {} : { lifeStage: args.lifeStage }),
+      ...(args.preferredSalutation === undefined
+        ? {}
+        : {
+            preferredSalutation: optionalText(
+              args.preferredSalutation,
+              "Preferred salutation",
+              80,
+            ),
+          }),
+      ...(args.memberKind === undefined ? {} : { memberKind: args.memberKind }),
+      active: true,
       ...(args.age === undefined ? {} : { age: args.age }),
       ...(args.sex === undefined
         ? {}
@@ -170,10 +216,11 @@ export const listMembers = query({
   },
   handler: async (ctx, { ownerKey, householdId }) => {
     await ownedHousehold(ctx, householdId, ownerKey);
-    return ctx.db
+    const members = await ctx.db
       .query("members")
       .withIndex("by_household", (q) => q.eq("householdId", householdId))
       .collect();
+    return members.filter((member) => member.active !== false);
   },
 });
 

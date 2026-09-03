@@ -11,6 +11,7 @@
 import type * as agentRuns from "../agentRuns.js";
 import type * as http from "../http.js";
 import type * as interpreter from "../interpreter.js";
+import type * as m1Setup from "../m1Setup.js";
 import type * as m5 from "../m5.js";
 import type * as messageTransport from "../messageTransport.js";
 import type * as metaWhatsAppTransport from "../metaWhatsAppTransport.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   agentRuns: typeof agentRuns;
   http: typeof http;
   interpreter: typeof interpreter;
+  m1Setup: typeof m1Setup;
   m5: typeof m5;
   messageTransport: typeof messageTransport;
   metaWhatsAppTransport: typeof metaWhatsAppTransport;

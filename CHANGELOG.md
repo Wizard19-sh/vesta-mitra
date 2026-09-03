@@ -76,6 +76,37 @@ Verified:
 
 Closure note: the initial M5 route-version preflight failed because the connected Convex development deployment lacked `m5:getRuntimeVersion`. After explicit owner approval, `npx convex dev --once` synchronized the reviewed local functions to development only and the preflight passed 3/3. The broader approved onboarding/dashboard visual redesign remains pending; M0 did not start it.
 
+### M1 — Complete Aevia household and specialist setup
+
+Implemented and verified locally on 2026-09-03:
+
+- changed public primary CTAs to **Hello Aevia** while retaining **Meet Aevia — your personal household assistant.** as supporting brand copy
+- extended the existing shared `members` model so one person can be reused across Aevia, Mitra, and Tarla without duplicate specialist identities
+- added arbitrary household members with relationship, life stage, explicit salutation, supported language, contact type, and reusable saved IDs
+- rebuilt onboarding as a progressive Mitra-only, Tarla-only, or Both flow with shared people and focused returning-user edit paths
+- added Mitra direct, caretaker/family, and both coordination setup; multiple independently scheduled routines; optional notes; explicit AM/PM controls; and familiar medicine labels without exact-medication storage
+- added Tarla eater selection, separate restrictions and preferences, custom entries, multiple expiring day rules, balanced or supported adult nutrition-goal setup, and multiple relationship-aware cooking people/visits
+- added deterministic customer-facing portions in household measures with cumulative kitchen totals that reconcile
+- updated the consumer dashboard to show saved household and specialist setup, honest upcoming work, a good “nothing needs you” state, and direct edit links without Agent Runs navigation
+- retained M0 safe-browser-storage behavior and existing W1–W4 runtime semantics
+
+Verified:
+
+- `npm run verify:m1`: 31/31
+- `npm run verify:m1:browser`: 2/2, including the full Both flow, six people, shared specialist identity, returning edits, reload, and 390px overflow coverage
+- `npm run verify:m5:route`: 3/3
+- `npm run verify:m0`: 15/15
+- `npm run verify:m0:browser`: 3/3
+- `npm run verify:m5`: 17/17
+- W1, W2, W3, W3.1, and W4: pass using development/synthetic paths only
+- TypeScript and production build: pass
+- lint: zero errors and four existing warnings in generated Convex files
+- Content Manager review: pass after removing unsupported or overly technical customer wording
+
+Development note: `npx convex dev --once` synchronized the additive M1 schema and functions to Convex development `grand-goshawk-952` for browser acceptance. It did not deploy production or the web application. No real WhatsApp message was sent.
+
+Known M1 boundary: the setup records Mitra’s `both` coordination path and multiple cooking people, but full multi-recipient follow-up and multi-cook execution remain later execution work. Generic free-text day rules are saved as context; arbitrary rule interpretation is not claimed.
+
 ### W1 — shared infrastructure
 
 Included in local checkpoint:

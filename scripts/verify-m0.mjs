@@ -94,14 +94,14 @@ assert.equal(
     hasExistingSession: true,
     hasSpecialistSetup: false,
   }),
-  "choice",
+  "household",
 );
 assert.equal(
   initialOnboardingStep({
     hasExistingSession: true,
     hasSpecialistSetup: true,
   }),
-  "identity",
+  "review",
 );
 
 const draft = {
@@ -109,11 +109,11 @@ const draft = {
   email: "test@example.invalid",
 };
 const beforeBack = structuredClone(draft);
-assert.equal(previousOnboardingStep("choice", "mitra"), "identity");
-assert.equal(previousOnboardingStep("shared", "mitra"), "choice");
-assert.equal(previousOnboardingStep("mitra", "mitra"), "shared");
-assert.equal(previousOnboardingStep("tarla", "both"), "mitra");
-assert.equal(previousOnboardingStep("tarla", "tarla"), "shared");
+assert.equal(previousOnboardingStep("household", "mitra"), "identity");
+assert.equal(previousOnboardingStep("choice", "mitra"), "household");
+assert.equal(previousOnboardingStep("mitraWho", "mitra"), "choice");
+assert.equal(previousOnboardingStep("tarlaEaters", "both"), "mitraRoutines");
+assert.equal(previousOnboardingStep("tarlaEaters", "tarla"), "choice");
 assert.deepEqual(draft, beforeBack);
 
 const files = {
@@ -148,7 +148,7 @@ assert.doesNotMatch(
   /key=\{existingSession\?\.profile\._id \?\? "fresh"\}/,
 );
 assert.match(files.onboarding, /initialOnboardingStep/);
-assert.match(files.onboarding, /setSessionIds\([\s\S]*setStep\("choice"\)/);
+assert.match(files.onboarding, /setSessionIds\([\s\S]*setStep\("household"\)/);
 assert.match(files.onboarding, /previousOnboardingStep/);
 
 for (const [name, source] of Object.entries(files)) {
@@ -185,7 +185,7 @@ console.log(
         "Analytics identity creation fails safely",
         "Existing session is never replaced after a write failure",
         "Fresh onboarding starts at identity",
-        "Identity-only reload resumes at Choose Help",
+        "Identity-only reload resumes at Household",
         "Completed setup reload hydrates its saved setup",
         "Back navigation preserves entered values",
         "Identity result advances the live flow without a remount key",

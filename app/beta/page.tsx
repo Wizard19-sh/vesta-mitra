@@ -6,7 +6,7 @@ export default function BetaPage() {
     <main className={styles.shell}>
       <header className={styles.header}>
         <Link href="/" className={styles.brand}><span>A</span>Aevia</Link>
-        <Link href="/onboarding" className={styles.cta}>Meet Aevia</Link>
+        <Link href="/onboarding" className={styles.cta}>Hello Aevia</Link>
       </header>
       <article className={styles.document}>
         <p className={styles.kicker}>Closed beta</p>

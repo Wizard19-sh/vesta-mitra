@@ -8,7 +8,7 @@
   min-height: 100vh;
   color: var(--charcoal);
   background: var(--cream);
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: Inter, "Segoe UI", sans-serif;
 }
 
 .loading,
@@ -21,7 +21,7 @@
   padding: 24px;
   text-align: center;
   background: #f5efe4;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
+  font-family: Inter, "Segoe UI", sans-serif;
 }
 
 .emptyPage > span {
@@ -64,6 +64,19 @@
   font-size: 1.3rem;
   font-weight: 700;
 }
+
+.householdList { display: grid; gap: 4px; }
+.householdList article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid rgba(41, 42, 36, 0.08);
+  padding: 15px 0;
+}
+.householdList article p { margin-top: 3px; color: var(--muted); font-size: 0.74rem; }
+.householdList article > span { border-radius: 999px; padding: 6px 9px; color: var(--sage); background: #e8ecdf; font-size: 0.68rem; }
+.assistantGrid article small { display: block; margin-top: 5px; color: var(--muted); font-size: 0.68rem; }
 
 .brand span {
   display: grid;

@@ -2,19 +2,50 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  FormEvent,
+  isValidElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import type { Id } from "../../convex/_generated/dataModel";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
+import {
+  buildRoutineTiming,
+  composeCookIntroduction,
+  composeMitraMessage,
+  cumulativeHouseholdMeasure,
+  defaultHouseholdMember,
+  defaultRoutine,
+  defaultTarlaSetup,
+  formatHouseholdMeasure,
+  isNutritionEstimateSupported,
+  normalizePhone,
+  personHouseholdMeasure,
+  splitPhone,
+  to12Hour,
+  type AeviaLanguage,
+  type AeviaSetupPayload,
+  type CommunicationPath,
+  type CookingPersonDraft,
+  type FoodRuleDraft,
+  type HouseholdMemberDraft,
+  type MitraPersonDraft,
+  type MitraRoutineDraft,
+  type NutritionPersonDraft,
+  type TarlaSetupDraft,
+} from "../../lib/aeviaSetup";
 import { useDeviceCredential } from "../../lib/aeviaSession";
 import { PRIVACY_VERSION, TERMS_VERSION } from "../../lib/betaPolicies";
 import {
-  composeRoutineMessage,
-  type MitraRoutineType,
-} from "../../lib/composeRoutineMessage";
-import {
   initialOnboardingStep,
+  onboardingSteps,
   previousOnboardingStep,
 } from "../../lib/onboardingFlowState";
 import { useProductAnalytics } from "../../lib/productAnalytics";
@@ -24,218 +55,84 @@ import styles from "./onboarding.module.css";
 type AgentChoice = "mitra" | "tarla" | "both";
 type Step =
   | "identity"
+  | "household"
   | "choice"
-  | "shared"
-  | "mitra"
-  | "tarla"
-  | "understood"
+  | "mitraWho"
+  | "mitraRoutines"
+  | "tarlaEaters"
+  | "tarlaFood"
+  | "tarlaRules"
+  | "tarlaCooks"
+  | "anythingElse"
+  | "review"
   | "plan";
-type Language = "English" | "Hindi" | "Hinglish";
-type RoutineTimingMode =
-  | "once_now"
-  | "once_scheduled"
-  | "daily"
-  | "selected_days"
-  | "weekly"
-  | "monthly";
-type DietaryType = "vegetarian" | "eggetarian" | "non_vegetarian";
-type CookingRole = "hired" | "family" | "self" | "different";
-type VisitFrequency = "once_daily" | "twice_daily";
-type MitraInput = {
-  name: string;
-  relationship: string;
-  salutation: string;
-  language: Language;
-  phone: string;
-  routineType: MitraRoutineType;
-  label: string;
-  exactMedicineName: string;
-  timingMode: RoutineTimingMode;
-  date: string;
-  time: string;
-  daysOfWeek: number[];
-  dayOfMonth: number;
-  introduced: boolean;
-};
-type TarlaInput = {
-  includeAdult: boolean;
-  adultName: string;
-  includeChild: boolean;
-  childName: string;
-  dietaryType: DietaryType;
-  cuisines: string[];
-  foodContext: string;
-  allergies: string;
-  avoidFoods: string;
-  preferences: string[];
-  tuesdayVegetarian: boolean;
-  nutrition: boolean;
-  age: number;
-  sex: "male" | "female";
-  heightCm: number;
-  weightKg: number;
-  activityLevel:
-    | "sedentary"
-    | "lightly_active"
-    | "moderately_active"
-    | "very_active"
-    | "extra_active";
-  nutritionGoal: "maintenance" | "deficit_10" | "deficit_20" | "custom";
-  calorieTarget: number;
-  proteinTarget: number;
-  cookingRole: CookingRole;
-  cookingName: string;
-  cookingLanguage: Language;
-  cookingPhone: string;
-  visitFrequency: VisitFrequency;
-  morningTime: string;
-  eveningTime: string;
-  planDate: string;
-};
-type IdentityResult = {
-  householdId: Id<"households">;
-  memberId: Id<"members">;
-};
-type TarlaSetupResult = {
+type ExistingSession = NonNullable<FunctionReturnType<typeof api.m5.getSession>>;
+type IdentityResult = { householdId: Id<"households">; memberId: Id<"members"> };
+type PlanSetup = {
+  dayPlanId: Id<"tarlaDayPlans">;
   cookStateId: Id<"tarlaCookStates">;
   endpointId: Id<"communicationEndpoints">;
-  dayPlanId: Id<"tarlaDayPlans">;
   primingMessage: string;
-  cookingRole: CookingRole;
-};
-type ExistingSession = NonNullable<FunctionReturnType<typeof api.m5.getSession>>;
-type ExistingSetupIds = {
-  mitra?: {
-    memberId: Id<"members">;
-    parentId: Id<"parents">;
-    endpointId: Id<"communicationEndpoints">;
-    routineId: Id<"routines">;
-  };
-  tarla?: {
-    adultMemberId?: Id<"members">;
-    childMemberId?: Id<"members">;
-    cookMemberId?: Id<"members">;
-    cookStateId?: Id<"tarlaCookStates">;
-    endpointId?: Id<"communicationEndpoints">;
-  };
+  phone: string;
+  relationshipType: CookingPersonDraft["relationshipType"];
 };
 
-const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const DAY_CHOICES = [
-  ["Sun", 0],
-  ["Mon", 1],
-  ["Tue", 2],
-  ["Wed", 3],
-  ["Thu", 4],
-  ["Fri", 5],
-  ["Sat", 6],
+  ["Sun", 0], ["Mon", 1], ["Tue", 2], ["Wed", 3], ["Thu", 4], ["Fri", 5], ["Sat", 6],
 ] as const;
+const ALL_DAYS = DAY_CHOICES.map(([, value]) => value);
 const CUISINES = [
-  "North Indian",
-  "South Indian",
-  "Punjabi",
-  "Gujarati",
-  "Maharashtrian",
-  "Bengali",
-  "Indo-Chinese",
-  "Continental",
-  "Italian / Pasta",
-  "Salads / Bowls",
-  "Other",
+  "North Indian", "South Indian", "Punjabi", "Gujarati", "Maharashtrian",
+  "Bengali", "Indo-Chinese", "Continental", "Italian / Pasta", "Salads / Bowls", "Other",
+];
+const RELATIONSHIPS = [
+  "Partner / spouse", "Mother", "Father", "Mother-in-law", "Father-in-law",
+  "Brother", "Sister", "Child", "Grandparent", "Other",
 ];
 
 export default function OnboardingPage() {
   const [credentialState, retryCredential] = useDeviceCredential();
-  const ownerKey =
-    credentialState.status === "ready"
-      ? credentialState.credential
-      : undefined;
-  const existingSession = useQuery(
-    api.m5.getSession,
-    ownerKey ? { ownerKey } : "skip",
-  );
-
-  if (credentialState.status === "loading") {
+  const ownerKey = credentialState.status === "ready" ? credentialState.credential : undefined;
+  const existingSession = useQuery(api.m5.getSession, ownerKey ? { ownerKey } : "skip");
+  if (credentialState.status === "loading" || (ownerKey && existingSession === undefined)) {
     return <main className={styles.loading}>Opening your Aevia setup…</main>;
   }
-  if (credentialState.status === "unavailable") {
-    return <SessionUnavailable onRetry={retryCredential} />;
-  }
-  if (existingSession === undefined) {
-    return <main className={styles.loading}>Opening your Aevia setup…</main>;
-  }
-
-  return (
-    <OnboardingFlow
-      ownerKey={credentialState.credential}
-      existingSession={existingSession}
-    />
-  );
+  if (credentialState.status === "unavailable") return <SessionUnavailable onRetry={retryCredential} />;
+  return <OnboardingFlow ownerKey={credentialState.credential} existingSession={existingSession ?? null} />;
 }
 
-function OnboardingFlow({
-  ownerKey,
-  existingSession,
-}: {
-  ownerKey: string;
-  existingSession: ExistingSession | null;
-}) {
+function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; existingSession: ExistingSession | null }) {
   const router = useRouter();
-  const [initial] = useState(() => initialOnboardingState(existingSession));
+  const [initial] = useState(() => initialState(existingSession));
   const [step, setStep] = useState<Step>(() => initial.step);
-  const [identity, setIdentity] = useState(() => initial.identity);
-  const [sessionIds, setSessionIds] = useState<IdentityResult | undefined>(
-    () => initial.sessionIds,
-  );
-  const [choice, setChoice] = useState<AgentChoice>(() => initial.choice);
-  const [sharedContext, setSharedContext] = useState(
-    () => initial.sharedContext,
-  );
-  const [mitra, setMitra] = useState<MitraInput>(() => initial.mitra);
-  const [tarla, setTarla] = useState<TarlaInput>(() => initial.tarla);
+  const [identity, setIdentity] = useState(initial.identity);
+  const [sessionIds, setSessionIds] = useState<IdentityResult | undefined>(initial.sessionIds);
+  const [choice, setChoice] = useState<AgentChoice>(initial.choice);
+  const [members, setMembers] = useState<HouseholdMemberDraft[]>(initial.members);
+  const [removedMemberIds, setRemovedMemberIds] = useState<string[]>([]);
+  const [mitraPeople, setMitraPeople] = useState<MitraPersonDraft[]>(initial.mitraPeople);
+  const [tarla, setTarla] = useState<TarlaSetupDraft>(initial.tarla);
+  const [anythingElse, setAnythingElse] = useState(initial.anythingElse);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [tarlaSetup, setTarlaSetup] = useState<TarlaSetupResult>();
-  const [existingIds] = useState<ExistingSetupIds>(() => initial.existingIds);
+  const [planSetup, setPlanSetup] = useState<PlanSetup>();
+  const [planChange, setPlanChange] = useState("");
   const [primed, setPrimed] = useState(false);
-  const [changeRequest, setChangeRequest] = useState("");
+  const [copied, setCopied] = useState(false);
   const started = useRef(false);
   const track = useProductAnalytics();
 
   const createIdentity = useMutation(api.m5.createOrUpdateIdentity);
-  const addMember = useMutation(api.vesta.addMember);
-  const updateMember = useMutation(api.vesta.updateMember);
-  const rememberPreference = useMutation(api.vesta.rememberPreference);
-  const addEndpoint = useMutation(api.vesta.addCommunicationEndpoint);
-  const updateEndpoint = useMutation(api.vesta.updateCommunicationEndpoint);
-  const updateEndpointStatus = useMutation(api.vesta.updateCommunicationEndpointStatus);
-  const configureProvider = useMutation(api.vesta.configureCommunicationProvider);
-  const addParent = useMutation(api.mitra.addParent);
-  const updateParent = useMutation(api.mitra.updateParent);
-  const linkLegacyParent = useMutation(api.vesta.linkLegacyParent);
-  const setMitraReadiness = useMutation(api.mitraRoutines.setMemberReadiness);
-  const createMitraRoutine = useMutation(api.mitraRoutines.createScheduledRoutine);
-  const updateMitraRoutine = useMutation(api.mitraRoutines.updateScheduledRoutine);
-  const setMealContext = useMutation(api.tarlaProfiles.setHouseholdMealContext);
-  const upsertMemberProfile = useMutation(api.tarlaProfiles.upsertMemberProfile);
-  const estimateNutrition = useMutation(api.tarlaProfiles.estimateMemberNutrition);
-  const setNutritionTargets = useMutation(api.tarlaProfiles.setNutritionTargets);
-  const setTuesdayVegetarianRule = useMutation(
-    api.tarlaProfiles.setTuesdayVegetarianRule,
-  );
-  const configureCook = useMutation(api.tarlaProfiles.configureCook);
-  const reassignCook = useMutation(api.tarlaProfiles.reassignCook);
-  const configureVisits = useMutation(api.tarlaProfiles.configureCookVisits);
-  const generatePriming = useMutation(api.tarlaProfiles.generateCookPriming);
-  const setCookReadiness = useMutation(api.tarlaProfiles.setCookReadiness);
+  const saveSetup = useMutation(api.m1Setup.saveSetup);
   const createDayPlan = useMutation(api.tarlaDayPlanning.createFullDayPlan);
   const requestDayPlanChange = useMutation(api.tarlaDayPlanning.requestDayPlanChange);
   const approveDayPlan = useMutation(api.tarlaDayPlanning.approveDayPlan);
+  const updateEndpointStatus = useMutation(api.vesta.updateCommunicationEndpointStatus);
+  const configureProvider = useMutation(api.vesta.configureCommunicationProvider);
+  const setCookReadiness = useMutation(api.tarlaProfiles.setCookReadiness);
   const plan = useQuery(
     api.tarlaDayPlanning.getDayPlan,
-    ownerKey && tarlaSetup
-      ? { ownerKey, dayPlanId: tarlaSetup.dayPlanId }
-      : "skip",
+    planSetup ? { ownerKey, dayPlanId: planSetup.dayPlanId } : "skip",
   );
 
   useEffect(() => {
@@ -244,33 +141,20 @@ function OnboardingFlow({
     void track("onboarding_started", { route: "/onboarding" });
   }, [track]);
 
-  const mitraPreview = useMemo(
-    () =>
-      composeRoutineMessage({
-        salutation: mitra.salutation,
-        language: mitra.language,
-        style: "Warm & caring",
-        routineType: mitra.routineType,
-        label: mitra.label,
-        isFirstContact: true,
-        setupBy: identity.name,
-      }),
-    [identity.name, mitra],
-  );
-
-  const steps = visibleSteps(choice);
-  const progressIndex = Math.max(steps.indexOf(step), 0);
+  const steps: Step[] = [...onboardingSteps(choice)];
+  const progressIndex = Math.max(0, steps.indexOf(step));
+  const primary = members.find((member) => member.isPrimary);
+  const householdMembers = members.filter((member) => member.memberKind === "household");
 
   function goBack() {
-    const previous = previousOnboardingStep(step, choice);
-    if (!previous) return;
+    const previous =
+      step === "plan" ? "review" : previousOnboardingStep(step, choice);
+    if (previous) setStep(previous);
     setError("");
-    setStep(previous);
   }
 
   async function submitIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!ownerKey) return;
     setBusy(true);
     setError("");
     try {
@@ -278,1436 +162,564 @@ function OnboardingFlow({
         ownerKey,
         name: identity.name,
         email: identity.email,
-        householdName: identity.householdName || identity.name + "'s household",
+        householdName: identity.householdName || `${identity.name}'s household`,
         timezone: identity.timezone,
         termsVersion: TERMS_VERSION,
         privacyVersion: PRIVACY_VERSION,
         accepted: identity.accepted,
       });
-      setSessionIds({
-        householdId: result.householdId,
-        memberId: result.memberId,
+      const ids = { householdId: result.householdId, memberId: result.memberId };
+      setSessionIds(ids);
+      setMembers((current) => {
+        const existingPrimary = current.find((item) => item.isPrimary);
+        const savedPrimary = defaultHouseholdMember({
+          ...existingPrimary,
+          clientKey: existingPrimary?.clientKey ?? "primary",
+          memberId: String(result.memberId),
+          name: identity.name,
+          relationship: "Self",
+          preferredSalutation: identity.name,
+          isPrimary: true,
+        });
+        return [savedPrimary, ...current.filter((item) => !item.isPrimary)];
       });
-      await Promise.all([
-        track("identity_completed", {
-          householdId: result.householdId,
-          route: "/onboarding",
-        }),
-        track("beta_terms_accepted", {
-          householdId: result.householdId,
-          route: "/onboarding",
-          outcome: TERMS_VERSION,
-        }),
-      ]);
-      setStep("choice");
+      await track("identity_completed", { householdId: result.householdId, route: "/onboarding" });
+      await track("beta_terms_accepted", {
+        householdId: result.householdId,
+        route: "/onboarding",
+      });
+      setStep("household");
     } catch (reason) {
-      setError(messageFrom(reason, "We couldn’t save this identity yet."));
+      setError(messageFrom(reason, "We couldn’t save your details yet."));
     } finally {
       setBusy(false);
     }
+  }
+
+  function submitHousehold(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const active = members.filter((member) => member.memberKind === "household");
+    if (active.some((member) => !member.name.trim() || !member.relationship.trim())) {
+      setError("Add a name and relationship for each household member.");
+      return;
+    }
+    setError("");
+    setStep("choice");
   }
 
   function submitChoice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!sessionIds) return;
-    void track("agent_selected", {
-      householdId: sessionIds.householdId,
-      route: "/onboarding",
-      agent: choice,
-    });
-    setStep("shared");
+    setError("");
+    setStep(choice === "tarla" ? "tarlaEaters" : "mitraWho");
   }
 
-  async function submitShared(event: FormEvent<HTMLFormElement>) {
+  function submitMitraWho(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!ownerKey || !sessionIds) return;
+    if (!mitraPeople.length) return setError("Choose at least one adult or senior for Mitra.");
+    for (const person of mitraPeople) {
+      const member = memberByKey(members, person.memberClientKey);
+      if (!member.preferredSalutation.trim()) return setError(`Add what you call ${member.name}.`);
+      if (!person.consentConfirmed) return setError(`${member.name} must agree to receive these routine messages.`);
+      if ((person.communicationPath === "senior_directly" || person.communicationPath === "both") && !validPhoneDraft(person.directPhone)) {
+        return setError(`Add a valid WhatsApp number for ${member.name}.`);
+      }
+      if ((person.communicationPath === "caretaker" || person.communicationPath === "both") && (!person.caretakerMemberClientKey || !validPhoneDraft(person.caretakerPhone))) {
+        return setError(`Add the caretaker or family contact for ${member.name}.`);
+      }
+    }
+    setError("");
+    setStep("mitraRoutines");
+  }
+
+  function submitMitraRoutines(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    for (const person of mitraPeople) {
+      if (!person.routines.length) return setError(`Add at least one routine for ${memberByKey(members, person.memberClientKey).name}.`);
+      for (const routine of person.routines) {
+        if (!routine.label.trim()) return setError("Give every routine a familiar name.");
+        if ((routine.timingMode === "selected_days" || routine.timingMode === "weekly") && !routine.daysOfWeek.length) return setError("Choose at least one day for the routine.");
+        try { buildRoutineTiming(routine, identity.timezone); } catch (reason) { return setError(messageFrom(reason, "Check the routine time.")); }
+      }
+    }
+    setError("");
+    setStep(choice === "both" ? "tarlaEaters" : "anythingElse");
+  }
+
+  function submitTarlaEaters(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tarla.eaterMemberClientKeys.length) return setError("Choose at least one person for Tarla to plan for.");
+    setError("");
+    setStep("tarlaFood");
+  }
+
+  function submitTarlaFood(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tarla.cuisines.length) return setError("Choose at least one cuisine, or choose Other.");
+    setError("");
+    setStep("tarlaRules");
+  }
+
+  function submitTarlaRules(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    for (const rule of tarla.rules) {
+      if (!rule.description.trim() || !rule.daysOfWeek.length) return setError("Each food rule needs a day and a clear instruction.");
+      if (rule.temporary && !rule.expiresOn) return setError("Choose when each temporary rule should end.");
+    }
+    if (tarla.nutritionMode === "nutrition_goal") {
+      for (const nutrition of tarla.nutritionPeople.filter((item) => item.enabled)) {
+        const member = memberByKey(members, nutrition.memberClientKey);
+        if (!isNutritionEstimateSupported(member)) continue;
+        if (!nutrition.age || !nutrition.sex || !nutrition.heightCm || !nutrition.weightKg || !nutrition.activityLevel) {
+          return setError(`Complete the nutrition details for ${member.name}, or use balanced meals for them.`);
+        }
+      }
+    }
+    setError("");
+    setStep("tarlaCooks");
+  }
+
+  function submitTarlaCooks(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tarla.cookingPeople.length) return setError("Add at least one person who prepares meals.");
+    for (const cook of tarla.cookingPeople) {
+      const member = memberByKey(members, cook.memberClientKey);
+      if (!member.name.trim()) return setError("Add a name for each cooking person.");
+      if (!validPhoneDraft(cook.phone)) return setError(`Add a valid WhatsApp number for ${member.name}.`);
+      if (!cook.visits.length || cook.visits.some((visit) => !visit.daysOfWeek.length)) return setError(`Add a cooking schedule for ${member.name}.`);
+    }
+    setError("");
+    setStep("anythingElse");
+  }
+
+  async function confirmSetup() {
+    if (!sessionIds) return;
     setBusy(true);
     setError("");
     try {
-      if (
-        sharedContext.trim() &&
-        existingSession?.setup.sharedContext !== sharedContext.trim()
-      ) {
-        await rememberPreference({
+      const payload: AeviaSetupPayload = { agentChoice: choice, members, removedMemberIds, mitraPeople, tarla, anythingElse };
+      const saved = await saveSetup({ ownerKey, householdId: sessionIds.householdId, setup: payload });
+      const savedMap = new Map(saved.memberIds.map((item) => [item.clientKey, item.memberId]));
+      await track("first_task_configured", { householdId: sessionIds.householdId, route: "/onboarding", agent: choice });
+      if ((choice === "tarla" || choice === "both") && !existingSession?.setup.tarla?.latestDayPlan) {
+        const firstCook = saved.cookingPeople[0];
+        if (!firstCook) throw new Error("A cooking person is required for the first plan");
+        const dayPlan = await createDayPlan({
           ownerKey,
           householdId: sessionIds.householdId,
-          category: "household_context",
-          key: "user_provided_context",
-          value: sharedContext.trim(),
-          source: "onboarding",
+          requestedByMemberId: sessionIds.memberId,
+          eaterMemberIds: saved.eaterMemberIds,
+          targetDate: tarla.firstPlanDate,
+          mealSlots: ["breakfast", "lunch", "snack", "dinner"],
         });
-      }
-      await track("shared_context_completed", {
-        householdId: sessionIds.householdId,
-        route: "/onboarding",
-        agent: choice,
-      });
-      setStep(choice === "tarla" ? "tarla" : "mitra");
-    } catch (reason) {
-      setError(messageFrom(reason, "We couldn’t save the household context yet."));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function submitMitra(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!mitra.introduced) {
-      setError("Confirm that this person knows Aevia will send the agreed routine.");
-      return;
-    }
-    if (mitra.timingMode === "selected_days" && mitra.daysOfWeek.length === 0) {
-      setError("Choose at least one day.");
-      return;
-    }
-    setError("");
-    setStep(choice === "both" ? "tarla" : "understood");
-  }
-
-  function submitTarla(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!tarla.cuisines.length) {
-      setError("Choose at least one cuisine or select Other.");
-      return;
-    }
-    if (tarla.includeAdult && !tarla.adultName.trim()) {
-      setError("Add the other adult’s name, or remove that person.");
-      return;
-    }
-    if (tarla.includeChild && !tarla.childName.trim()) {
-      setError("Add the child’s name, or remove that person.");
-      return;
-    }
-    if (tarla.cookingRole !== "self" && !tarla.cookingName.trim()) {
-      setError("Add the cooking person’s name.");
-      return;
-    }
-    setError("");
-    setStep("understood");
-  }
-
-  async function activate() {
-    if (!ownerKey || !sessionIds) return;
-    setBusy(true);
-    setError("");
-    try {
-      if (choice === "mitra" || choice === "both") {
-        await activateMitra(ownerKey, sessionIds);
-      }
-      if (choice === "tarla" || choice === "both") {
-        const result = await prepareTarla(ownerKey, sessionIds);
-        if (result) {
-          setTarlaSetup(result);
-          setStep("plan");
-        } else {
-          router.push("/dashboard");
-        }
+        const cookDraft = tarla.cookingPeople[0];
+        setPlanSetup({
+          dayPlanId: dayPlan.dayPlanId,
+          cookStateId: firstCook.cookStateId,
+          endpointId: firstCook.endpointId,
+          primingMessage: firstCook.primingMessage,
+          phone: cookDraft.phone,
+          relationshipType: firstCook.relationshipType,
+        });
+        setMembers((current) => current.map((item) => ({ ...item, memberId: String(savedMap.get(item.clientKey) ?? item.memberId ?? "") })));
+        setStep("plan");
       } else {
         router.push("/dashboard");
       }
     } catch (reason) {
-      setError(messageFrom(reason, "Aevia couldn’t activate this setup yet."));
+      setError(messageFrom(reason, "Aevia couldn’t save this setup yet."));
     } finally {
       setBusy(false);
     }
-  }
-
-  async function activateMitra(key: string, session: IdentityResult) {
-    const existing = existingIds.mitra;
-    const memberId = existing?.memberId ??
-      (await addMember({
-        ownerKey: key,
-        householdId: session.householdId,
-        name: mitra.name,
-        role: seniorRole(mitra.relationship),
-        languagePreference: mitra.language,
-        notes: sharedContext.trim() || undefined,
-      }));
-    if (existing) {
-      await updateMember({
-        ownerKey: key,
-        householdId: session.householdId,
-        memberId,
-        name: mitra.name,
-        role: seniorRole(mitra.relationship),
-        languagePreference: mitra.language,
-        notes: sharedContext.trim() || undefined,
-      });
-    }
-    const parentId = existing?.parentId ??
-      (await addParent({
-        ownerKey: key,
-        name: mitra.name,
-        relationship: legacyRelationship(mitra.relationship),
-        childDisplayName: identity.name,
-        salutation: mitra.salutation,
-        preferredLanguage: mitra.language,
-        communicationPreference: "Text",
-        conversationStyle: "Warm & caring",
-        primaryIntent: "ROUTINES",
-        context: sharedContext.trim() || undefined,
-      }));
-    if (existing) {
-      await updateParent({
-        ownerKey: key,
-        parentId,
-        name: mitra.name,
-        relationship: legacyRelationship(mitra.relationship),
-        childDisplayName: identity.name,
-        salutation: mitra.salutation,
-        preferredLanguage: mitra.language,
-        context: sharedContext.trim() || undefined,
-      });
-    } else {
-      await linkLegacyParent({
-        ownerKey: key,
-        parentId,
-        householdId: session.householdId,
-        memberId,
-      });
-    }
-    const endpointId = existing?.endpointId ??
-      (await addEndpoint({
-        ownerKey: key,
-        householdId: session.householdId,
-        memberId,
-        channel: "whatsapp",
-        address: mitra.phone,
-        preferredLanguage: mitra.language,
-        preferredMode: "text",
-        providerMetadata: { provider: "development", ready: true },
-        active: true,
-        consentStatus: "granted",
-        verifiedAt: Date.now(),
-      }));
-    if (existing) {
-      await updateEndpoint({
-        ownerKey: key,
-        endpointId,
-        memberId,
-        channel: "whatsapp",
-        address: mitra.phone,
-        preferredLanguage: mitra.language,
-        preferredMode: "text",
-      });
-    }
-    await setMitraReadiness({
-      ownerKey: key,
-      householdId: session.householdId,
-      memberId,
-      readiness: "ready",
-    });
-    const routine = existing
-      ? await updateMitraRoutine({
-          ownerKey: key,
-          routineId: existing.routineId,
-          type: mitra.routineType,
-          label: mitra.label,
-          timing: routineTiming(mitra, identity.timezone),
-          customMessage: mitraPreview,
-        })
-      : await createMitraRoutine({
-          ownerKey: key,
-          householdId: session.householdId,
-          memberId,
-          parentId,
-          communicationEndpointId: endpointId,
-          type: mitra.routineType,
-          label: mitra.label,
-          timing: routineTiming(mitra, identity.timezone),
-          customMessage: mitraPreview,
-        });
-    await Promise.all([
-      track("mitra_onboarding_completed", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "mitra",
-      }),
-      track("first_task_configured", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "mitra",
-        outcome: mitra.routineType,
-      }),
-      track("message_scheduled", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "mitra",
-        outcome: String(routine.nextOccurrenceAt),
-      }),
-      track("whatsapp_ready", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "mitra",
-        outcome: "development_transport",
-      }),
-    ]);
-  }
-
-  async function prepareTarla(
-    key: string,
-    session: IdentityResult,
-  ): Promise<TarlaSetupResult | null> {
-    await setMealContext({
-      ownerKey: key,
-      householdId: session.householdId,
-      mealsPreparedAtHome: ["breakfast", "lunch", "snack", "dinner"],
-      usualMealTimes: [
-        { meal: "breakfast", time: "08:30" },
-        { meal: "lunch", time: "13:00" },
-        { meal: "snack", time: "16:30" },
-        { meal: "dinner", time: "20:00" },
-      ],
-    });
-    if (tarla.nutrition) {
-      await updateMember({
-        ownerKey: key,
-        householdId: session.householdId,
-        memberId: session.memberId,
-        age: tarla.age,
-        sex: tarla.sex,
-        heightCm: tarla.heightCm,
-        weightKg: tarla.weightKg,
-      });
-    }
-    const commonProfile = {
-      ownerKey: key,
-      householdId: session.householdId,
-      dietaryType: tarla.dietaryType,
-      allergies: listFromText(tarla.allergies),
-      avoidedFoods: listFromText(tarla.avoidFoods),
-      limitedFoods: [],
-      favouriteFoods: [],
-      mealsAtHome: ["breakfast", "lunch", "snack", "dinner"],
-      foodContext: [tarla.foodContext, tarla.preferences.join(", ")].filter(Boolean).join(". "),
-    };
-    await upsertMemberProfile({
-      ...commonProfile,
-      memberId: session.memberId,
-      servingEquivalent: 1,
-    });
-    const eaterIds: Id<"members">[] = [session.memberId];
-    if (tarla.includeAdult) {
-      const adultId = existingIds.tarla?.adultMemberId ??
-        (await addMember({
-          ownerKey: key,
-          householdId: session.householdId,
-          name: tarla.adultName,
-          role: "adult",
-        }));
-      if (existingIds.tarla?.adultMemberId) {
-        await updateMember({
-          ownerKey: key,
-          householdId: session.householdId,
-          memberId: adultId,
-          name: tarla.adultName,
-          role: "adult",
-        });
-      }
-      eaterIds.push(adultId);
-      await upsertMemberProfile({
-        ...commonProfile,
-        memberId: adultId,
-        servingEquivalent: 1,
-      });
-    }
-    if (tarla.includeChild) {
-      const childId = existingIds.tarla?.childMemberId ??
-        (await addMember({
-          ownerKey: key,
-          householdId: session.householdId,
-          name: tarla.childName,
-          role: "child",
-        }));
-      if (existingIds.tarla?.childMemberId) {
-        await updateMember({
-          ownerKey: key,
-          householdId: session.householdId,
-          memberId: childId,
-          name: tarla.childName,
-          role: "child",
-        });
-      }
-      eaterIds.push(childId);
-      await upsertMemberProfile({
-        ...commonProfile,
-        memberId: childId,
-        servingEquivalent: 0.55,
-        mealsAtHome: ["breakfast", "lunch", "dinner"],
-        cookNotes: tarla.preferences.includes("low spice")
-          ? "Keep the child portion low spice."
-          : undefined,
-      });
-    }
-    if (tarla.nutrition) {
-      await estimateNutrition({
-        ownerKey: key,
-        householdId: session.householdId,
-        memberId: session.memberId,
-        activityLevel: tarla.activityLevel,
-        goal: tarla.nutritionGoal,
-        customCalorieTargetKcal:
-          tarla.nutritionGoal === "custom" ? tarla.calorieTarget : undefined,
-      });
-      if (tarla.proteinTarget > 0) {
-        await setNutritionTargets({
-          ownerKey: key,
-          householdId: session.householdId,
-          memberId: session.memberId,
-          proteinTargetG: tarla.proteinTarget,
-        });
-      }
-    }
-    const cuisineValue = tarla.cuisines.join(", ");
-    if (existingSession?.setup.tarla?.cuisines !== cuisineValue) {
-      await rememberPreference({
-        ownerKey: key,
-        householdId: session.householdId,
-        category: "tarla_onboarding",
-        key: "cuisines",
-        value: cuisineValue,
-        source: "onboarding",
-      });
-    }
-    const foodContextValue = [tarla.foodContext.trim(), tarla.preferences.join(", ")]
-      .filter(Boolean)
-      .join(". ");
-    if (
-      foodContextValue &&
-      existingSession?.setup.tarla?.foodContext !== foodContextValue
-    ) {
-      await rememberPreference({
-        ownerKey: key,
-        householdId: session.householdId,
-        category: "tarla_onboarding",
-        key: "food_context",
-        value: foodContextValue,
-        source: "onboarding",
-      });
-    }
-    await setTuesdayVegetarianRule({
-      ownerKey: key,
-      householdId: session.householdId,
-      active: tarla.tuesdayVegetarian,
-    });
-    let cookingMemberId: Id<"members">;
-    if (tarla.cookingRole === "self") {
-      cookingMemberId = session.memberId;
-    } else if (
-      existingIds.tarla?.cookMemberId &&
-      existingIds.tarla.cookMemberId !== session.memberId
-    ) {
-      cookingMemberId = existingIds.tarla.cookMemberId;
-      await updateMember({
-        ownerKey: key,
-        householdId: session.householdId,
-        memberId: cookingMemberId,
-        name: tarla.cookingName,
-        role: cookingMemberRole(tarla.cookingRole),
-        languagePreference: tarla.cookingLanguage,
-      });
-    } else {
-      cookingMemberId = await addMember({
-        ownerKey: key,
-        householdId: session.householdId,
-        name: tarla.cookingName,
-        role: cookingMemberRole(tarla.cookingRole),
-        languagePreference: tarla.cookingLanguage,
-      });
-    }
-    if (
-      existingIds.tarla?.cookStateId &&
-      existingIds.tarla.cookMemberId !== cookingMemberId
-    ) {
-      await reassignCook({
-        ownerKey: key,
-        cookStateId: existingIds.tarla.cookStateId,
-        memberId: cookingMemberId,
-      });
-    }
-    const endpointId = existingIds.tarla?.endpointId ??
-      (await addEndpoint({
-        ownerKey: key,
-        householdId: session.householdId,
-        memberId: cookingMemberId,
-        channel: "whatsapp",
-        address: tarla.cookingPhone,
-        preferredLanguage: tarla.cookingLanguage,
-        preferredMode: "text",
-        providerMetadata: {
-          provider: "development",
-          ready: tarla.cookingRole === "self",
-        },
-        active: true,
-        consentStatus: tarla.cookingRole === "self" ? "granted" : "pending",
-        verifiedAt: tarla.cookingRole === "self" ? Date.now() : undefined,
-      }));
-    if (existingIds.tarla?.endpointId) {
-      await updateEndpoint({
-        ownerKey: key,
-        endpointId,
-        memberId: cookingMemberId,
-        channel: "whatsapp",
-        address: tarla.cookingPhone,
-        preferredLanguage: tarla.cookingLanguage,
-        preferredMode: "text",
-      });
-    }
-    const cookStateId = await configureCook({
-      ownerKey: key,
-      householdId: session.householdId,
-      memberId: cookingMemberId,
-      communicationEndpointId: endpointId,
-      usualArrivalTime: tarla.morningTime,
-      communicationTone: cookingTone(tarla.cookingRole),
-      visitFrequency: tarla.visitFrequency,
-    });
-    await configureVisits({
-      ownerKey: key,
-      cookStateId,
-      frequency: tarla.visitFrequency,
-      visits:
-        tarla.visitFrequency === "once_daily"
-          ? [
-              {
-                label: "Daily visit",
-                daysOfWeek: ALL_DAYS,
-                arrivalTime: tarla.morningTime,
-                timezone: identity.timezone,
-                instructionLeadMinutes: 30,
-                mealSlots: ["breakfast", "lunch", "snack", "dinner"],
-              },
-            ]
-          : [
-              {
-                label: "Morning visit",
-                daysOfWeek: ALL_DAYS,
-                arrivalTime: tarla.morningTime,
-                timezone: identity.timezone,
-                instructionLeadMinutes: 30,
-                mealSlots: ["breakfast", "lunch"],
-              },
-              {
-                label: "Evening visit",
-                daysOfWeek: ALL_DAYS,
-                arrivalTime: tarla.eveningTime,
-                timezone: identity.timezone,
-                instructionLeadMinutes: 30,
-                mealSlots: ["snack", "dinner"],
-              },
-            ],
-    });
-    const priming = await generatePriming({
-      ownerKey: key,
-      householdId: session.householdId,
-      cookMemberId: cookingMemberId,
-      householdUserMemberId: session.memberId,
-    });
-    if (existingIds.tarla?.cookStateId) {
-      await track("tarla_onboarding_completed", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "tarla",
-        outcome: "updated_existing_setup",
-      });
-      return null;
-    }
-    const dayPlan = await createDayPlan({
-      ownerKey: key,
-      householdId: session.householdId,
-      requestedByMemberId: session.memberId,
-      eaterMemberIds: eaterIds,
-      targetDate: tarla.planDate,
-      mealSlots: ["breakfast", "lunch", "snack", "dinner"],
-    });
-    await Promise.all([
-      track("tarla_onboarding_completed", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "tarla",
-      }),
-      track("plan_generated", {
-        householdId: session.householdId,
-        route: "/onboarding",
-        agent: "tarla",
-        outcome: tarla.planDate,
-      }),
-    ]);
-    return {
-      cookStateId,
-      endpointId,
-      dayPlanId: dayPlan.dayPlanId,
-      primingMessage: priming.primingMessage,
-      cookingRole: tarla.cookingRole,
-    };
   }
 
   async function changePlan() {
-    if (!ownerKey || !sessionIds || !tarlaSetup || !changeRequest.trim()) return;
+    if (!planSetup || !sessionIds || !planChange.trim()) return;
     setBusy(true);
-    setError("");
     try {
-      const changed = await requestDayPlanChange({
-        ownerKey,
-        dayPlanId: tarlaSetup.dayPlanId,
-        memberId: sessionIds.memberId,
-        rawContent: changeRequest.trim(),
-      });
-      setTarlaSetup({ ...tarlaSetup, dayPlanId: changed.dayPlanId });
-      setChangeRequest("");
-    } catch (reason) {
-      setError(messageFrom(reason, "Tarla couldn’t apply that change."));
-    } finally {
-      setBusy(false);
-    }
+      const result = await requestDayPlanChange({ ownerKey, dayPlanId: planSetup.dayPlanId, memberId: sessionIds.memberId, rawContent: planChange.trim() });
+      setPlanSetup({ ...planSetup, dayPlanId: result.dayPlanId });
+      setPlanChange("");
+    } catch (reason) { setError(messageFrom(reason, "Tarla couldn’t apply that change.")); }
+    finally { setBusy(false); }
   }
 
   async function approvePlan() {
-    if (!ownerKey || !sessionIds || !tarlaSetup) return;
-    if (tarlaSetup.cookingRole !== "self" && !primed) {
-      setError("Confirm that you introduced Aevia to the cooking person first.");
-      return;
-    }
+    if (!planSetup || !sessionIds) return;
+    if (planSetup.relationshipType === "hired_cook" && !primed) return setError("Confirm that the cooking person agreed to receive these messages.");
     setBusy(true);
-    setError("");
     try {
-      await updateEndpointStatus({
-        ownerKey,
-        endpointId: tarlaSetup.endpointId,
-        active: true,
-        consentStatus: "granted",
-        verifiedAt: Date.now(),
-      });
-      await configureProvider({
-        ownerKey,
-        endpointId: tarlaSetup.endpointId,
-        provider: "development",
-        ready: true,
-      });
-      await setCookReadiness({
-        ownerKey,
-        cookStateId: tarlaSetup.cookStateId,
-        readiness: "ready",
-      });
-      await approveDayPlan({
-        ownerKey,
-        dayPlanId: tarlaSetup.dayPlanId,
-        memberId: sessionIds.memberId,
-        cookStateId: tarlaSetup.cookStateId,
-        rawContent: "I approve this full-day plan.",
-      });
-      await Promise.all([
-        track("plan_approved", {
-          householdId: sessionIds.householdId,
-          route: "/onboarding",
-          agent: "tarla",
-        }),
-        track("first_task_configured", {
-          householdId: sessionIds.householdId,
-          route: "/onboarding",
-          agent: "tarla",
-          outcome: "full_day_plan",
-        }),
-        track("message_scheduled", {
-          householdId: sessionIds.householdId,
-          route: "/onboarding",
-          agent: "tarla",
-          outcome: "cook_visit",
-        }),
-        track("whatsapp_ready", {
-          householdId: sessionIds.householdId,
-          route: "/onboarding",
-          agent: "tarla",
-          outcome: "development_transport",
-        }),
-      ]);
+      await updateEndpointStatus({ ownerKey, endpointId: planSetup.endpointId, active: true, consentStatus: "granted", verifiedAt: Date.now() });
+      await configureProvider({ ownerKey, endpointId: planSetup.endpointId, provider: "development", ready: true });
+      await setCookReadiness({ ownerKey, cookStateId: planSetup.cookStateId, readiness: "ready" });
+      await approveDayPlan({ ownerKey, dayPlanId: planSetup.dayPlanId, memberId: sessionIds.memberId, cookStateId: planSetup.cookStateId, rawContent: "I approve this full-day plan." });
       router.push("/dashboard");
-    } catch (reason) {
-      setError(messageFrom(reason, "Aevia couldn’t approve and schedule this plan."));
-    } finally {
-      setBusy(false);
-    }
+    } catch (reason) { setError(messageFrom(reason, "Aevia couldn’t approve this plan yet.")); }
+    finally { setBusy(false); }
+  }
+
+  async function copyIntro() {
+    if (!planSetup) return;
+    try { await navigator.clipboard.writeText(planSetup.primingMessage); setCopied(true); }
+    catch { setError("Copying didn’t work here. You can select the message and copy it instead."); }
   }
 
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
-        <Link href="/" className={styles.brand}><span>A</span>Aevia</Link>
-        <div className={styles.progress} aria-label={"Step " + (progressIndex + 1) + " of " + steps.length}>
-          <span style={{ width: ((progressIndex + 1) / steps.length) * 100 + "%" }} />
-        </div>
-        <p>{progressIndex + 1} of {steps.length}</p>
+        <Link href="/" className={styles.brand}>Aevia</Link>
+        <div className={styles.progress} aria-label={`Stage ${progressIndex + 1} of ${steps.length}`}><span style={{ width: `${((progressIndex + 1) / steps.length) * 100}%` }} /></div>
+        <p>{stageLabel(step)}</p>
       </header>
 
       {step === "identity" && (
-        <Panel eyebrow="Start with you" title="A few details, then one useful action.">
-          {existingSession && (
-            <div className={styles.resume}>
-              <p>Your saved Aevia setup is loaded below.</p>
-              <Link href="/dashboard">Open dashboard</Link>
-            </div>
-          )}
+        <Panel eyebrow="About you" title="Let's start with you." supporting="A few basics so Aevia knows whose household it's helping.">
           <form className={styles.form} onSubmit={submitIdentity}>
             <div className={styles.twoColumns}>
-              <Field label="Your name"><input required autoFocus value={identity.name} onChange={(event) => setIdentity({ ...identity, name: event.target.value })} placeholder="e.g. Priya" /></Field>
-              <Field label="Email"><input required type="email" value={identity.email} onChange={(event) => setIdentity({ ...identity, email: event.target.value })} placeholder="you@example.com" /></Field>
+              <Field label="Your name"><input required autoFocus value={identity.name} onChange={(e) => setIdentity({ ...identity, name: e.target.value })} placeholder="Your name" /></Field>
+              <Field label="Email"><input required type="email" value={identity.email} onChange={(e) => setIdentity({ ...identity, email: e.target.value })} placeholder="you@example.com" /></Field>
             </div>
-            <Field label="Household name" hint="Optional"><input value={identity.householdName} onChange={(event) => setIdentity({ ...identity, householdName: event.target.value })} placeholder={identity.name ? identity.name + "'s household" : "e.g. The Sharma household"} /></Field>
-            <Field label="Timezone"><input required readOnly value={identity.timezone} /></Field>
-            <div className={styles.betaNotice}>
-              <strong>Aevia is currently in beta.</strong>
-              <p>It can make mistakes or misunderstand messages, so please review important information and decisions.</p>
+            <Field label="Household name" hint="Optional"><input value={identity.householdName} onChange={(e) => setIdentity({ ...identity, householdName: e.target.value })} placeholder="e.g. Our home" /></Field>
+            <Field label="Timezone"><input readOnly value={identity.timezone} /></Field>
+            <div className={styles.betaNotice}><strong>Closed beta</strong><p>Aevia can make mistakes or misunderstand messages, so important information and decisions should still be reviewed.</p></div>
+            <label className={styles.checkLine}><input required type="checkbox" checked={identity.accepted} onChange={(e) => setIdentity({ ...identity, accepted: e.target.checked })} /><span>I agree to Aevia’s <Link href="/terms" target="_blank">Terms</Link> and <Link href="/privacy" target="_blank">Privacy Policy</Link>.</span></label>
+            <FormError error={error} /><NextButton busy={busy}>Continue</NextButton>
+          </form>
+        </Panel>
+      )}
+
+      {step === "household" && (
+        <Panel eyebrow="Your household" title="Who is part of your household?" supporting="Add the people Aevia may need to plan for or coordinate around.">
+          <form className={styles.form} onSubmit={submitHousehold}>
+            <div className={styles.memberList}>
+              {householdMembers.map((member) => (
+                <MemberEditor key={member.clientKey} member={member} onChange={(next) => updateMemberState(setMembers, next)} onRemove={member.isPrimary ? undefined : () => removeMember(member)} />
+              ))}
             </div>
-            <label className={styles.checkLine}>
-              <input type="checkbox" checked={identity.accepted} onChange={(event) => setIdentity({ ...identity, accepted: event.target.checked })} required />
-              <span>I agree to Aevia’s <Link href="/terms" target="_blank">Terms</Link> and <Link href="/privacy" target="_blank">Privacy Policy</Link> and understand that Aevia is currently in beta.</span>
-            </label>
-            <p className={styles.deviceNote}>This closed-beta setup is tied to this browser using a private device credential. It is not an email login yet.</p>
-            <FormError error={error} />
-            <NextButton busy={busy}>Continue</NextButton>
+            <button className={styles.addButton} type="button" onClick={() => setMembers((current) => [...current, defaultHouseholdMember()])}>+ Add household member</button>
+            <p className={styles.helper}>These people form one shared household. Mitra and Tarla will reuse them, so you won’t add the same person twice.</p>
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
           </form>
         </Panel>
       )}
 
       {step === "choice" && (
-        <Panel eyebrow="Choose your starting point" title="What would you like Aevia to take care of?">
+        <Panel eyebrow="Choose help" title="What would you like Aevia to take care of?" supporting="You can add the other specialist later.">
           <form className={styles.form} onSubmit={submitChoice}>
             <div className={styles.choiceCards}>
-              <ChoiceCard selected={choice === "mitra"} onSelect={() => setChoice("mitra")} letter="M" title="Parents" body="Set up Mitra for one agreed everyday routine." />
-              <ChoiceCard selected={choice === "tarla"} onSelect={() => setChoice("tarla")} letter="T" title="Kitchen" body="Plan a day and coordinate the next cooking visit." />
-              <ChoiceCard selected={choice === "both"} onSelect={() => setChoice("both")} letter="A" title="Both" body="One household setup, then Mitra and Tarla." />
+              <ChoiceCard selected={choice === "mitra"} title="Parents & seniors" name="Mitra" body="Everyday routines and follow-through for someone you care about." onSelect={() => setChoice("mitra")} />
+              <ChoiceCard selected={choice === "tarla"} title="Kitchen & meals" name="Tarla" body="Meal planning and coordination around your household." onSelect={() => setChoice("tarla")} />
+              <ChoiceCard selected={choice === "both"} title="Both" name="One household setup" body="Mitra and Tarla together, using the same household context." onSelect={() => setChoice("both")} />
             </div>
-            <div className={styles.confirmActions}>
-              <button type="button" className={styles.backButton} onClick={goBack}>Back</button>
-              <NextButton>Continue</NextButton>
-            </div>
+            <Actions back={goBack} busy={busy} />
           </form>
         </Panel>
       )}
 
-      {step === "shared" && (
-        <Panel eyebrow="Your household" title="What should Aevia know before it starts?">
-          <form className={styles.form} onSubmit={submitShared}>
-            <Field label="Anything Aevia should know about your household?" hint="Optional">
-              <textarea rows={6} value={sharedContext} onChange={(event) => setSharedContext(event.target.value)} placeholder="Papa prefers Hinglish. Our cook comes twice a day. Tuesdays are vegetarian." />
-            </Field>
-            <p className={styles.contextNote}>Aevia will save this as your own context. It will not pretend every sentence was perfectly extracted into structured data.</p>
-            <FormError error={error} />
-            <div className={styles.confirmActions}>
-              <button type="button" className={styles.backButton} onClick={goBack} disabled={busy}>Back</button>
-              <NextButton busy={busy}>Continue</NextButton>
+      {step === "mitraWho" && (
+        <Panel eyebrow="Mitra · people" title="Who should Mitra help?" supporting="Choose one or more adults or seniors from your household.">
+          <form className={styles.form} onSubmit={submitMitraWho}>
+            <div className={styles.selectPeople}>
+              {householdMembers.filter((member) => !member.isPrimary && member.lifeStage !== "child").map((member) => {
+                const selected = mitraPeople.some((item) => item.memberClientKey === member.clientKey);
+                return <button type="button" key={member.clientKey} aria-pressed={selected} className={selected ? styles.personSelected : ""} onClick={() => toggleMitraPerson(member)}><strong>{member.name}</strong><span>{member.relationship} · {member.lifeStage}</span><em>{selected ? "Selected" : "Select"}</em></button>;
+              })}
             </div>
+            {mitraPeople.map((person) => {
+              const member = memberByKey(members, person.memberClientKey);
+              return (
+                <section className={styles.configCard} key={person.memberClientKey}>
+                  <h2>{member.name}</h2>
+                  <div className={styles.twoColumns}>
+                    <Field label="What do you call them?"><input required value={member.preferredSalutation} onChange={(e) => updateMemberState(setMembers, { ...member, preferredSalutation: e.target.value })} placeholder="Papa, Maa, Dadu, Nani…" /></Field>
+                    <Field label="Preferred language"><select value={member.preferredLanguage} onChange={(e) => updateMemberState(setMembers, { ...member, preferredLanguage: e.target.value as AeviaLanguage })}><option>English</option><option>Hindi</option><option>Hinglish</option></select></Field>
+                  </div>
+                  <Field label="Who should Mitra coordinate with?"><Pills values={["senior_directly", "caretaker", "both"]} labels={["Them directly", "A caretaker / family member", "Both"]} selected={[person.communicationPath]} single onToggle={(value) => patchMitraPerson(person.memberClientKey, { communicationPath: value as CommunicationPath })} /></Field>
+                  {(person.communicationPath === "senior_directly" || person.communicationPath === "both") && <PhoneField label={`${member.preferredSalutation || member.name}'s WhatsApp`} value={person.directPhone} onChange={(value) => patchMitraPerson(person.memberClientKey, { directPhone: value })} />}
+                  {(person.communicationPath === "caretaker" || person.communicationPath === "both") && (
+                    <div className={styles.caretakerBox}>
+                      <Field label="Caretaker or family member"><select value={person.caretakerMemberClientKey ?? ""} onChange={(e) => patchMitraPerson(person.memberClientKey, { caretakerMemberClientKey: e.target.value || undefined })}><option value="">Choose a person</option>{members.filter((item) => item.clientKey !== member.clientKey).map((item) => <option key={item.clientKey} value={item.clientKey}>{item.name || "New external contact"} · {item.relationship || "contact"}</option>)}</select></Field>
+                      <button className={styles.textButton} type="button" onClick={() => addExternalCaretaker(person.memberClientKey)}>+ Add external caretaker</button>
+                      {person.caretakerMemberClientKey && memberByKey(members, person.caretakerMemberClientKey).memberKind === "external" && (() => { const contact = memberByKey(members, person.caretakerMemberClientKey!); return <div className={styles.twoColumns}><Field label="Contact name"><input value={contact.name} onChange={(e) => updateMemberState(setMembers, { ...contact, name: e.target.value })} placeholder="Name" /></Field><Field label="How should Mitra address them?"><input value={contact.preferredSalutation} onChange={(e) => updateMemberState(setMembers, { ...contact, preferredSalutation: e.target.value })} placeholder="Name or familiar salutation" /></Field><Field label="Relationship"><input value={contact.relationship} onChange={(e) => updateMemberState(setMembers, { ...contact, relationship: e.target.value })} placeholder="Caretaker, neighbour, family friend…" /></Field><Field label="Preferred language"><select value={contact.preferredLanguage} onChange={(e) => updateMemberState(setMembers, { ...contact, preferredLanguage: e.target.value as AeviaLanguage })}><option>English</option><option>Hindi</option><option>Hinglish</option></select></Field></div>; })()}
+                      <PhoneField label="Caretaker WhatsApp" value={person.caretakerPhone} onChange={(value) => patchMitraPerson(person.memberClientKey, { caretakerPhone: value })} />
+                      <p>Mitra uses this path for the agreed routine. You can change it later.</p>
+                    </div>
+                  )}
+                  <label className={styles.checkLine}><input type="checkbox" checked={person.consentConfirmed} onChange={(e) => patchMitraPerson(person.memberClientKey, { consentConfirmed: e.target.checked })} /><span>{member.preferredSalutation || member.name} and any selected contact know about this setup and agreed to receive these messages.</span></label>
+                </section>
+              );
+            })}
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
           </form>
         </Panel>
       )}
 
-      {step === "mitra" && (
-        <Panel eyebrow="Meet Mitra" title="Set up one routine for someone you care about.">
-          <form className={styles.form} onSubmit={submitMitra}>
-            <div className={styles.disclosure}>Mitra helps with everyday routines but isn’t a medical or emergency service. Medication information and changes should always be verified.</div>
-            <div className={styles.twoColumns}>
-              <Field label="Their name"><input required value={mitra.name} onChange={(event) => setMitra({ ...mitra, name: event.target.value })} placeholder="e.g. Rajesh" /></Field>
-              <Field label="What do you call them?"><input required value={mitra.salutation} onChange={(event) => setMitra({ ...mitra, salutation: event.target.value, relationship: event.target.value })} placeholder="Papa, Maa, Dadi…" /></Field>
-            </div>
-            <Field label="Preferred language">
-              <Pills values={["English", "Hindi", "Hinglish"]} selected={[mitra.language]} onToggle={(value) => setMitra({ ...mitra, language: value as Language })} single />
-            </Field>
-            <Field label="WhatsApp number" hint="Use international format">
-              <input required pattern="^\+[1-9]\d{9,14}$" value={mitra.phone} onChange={(event) => setMitra({ ...mitra, phone: event.target.value })} placeholder="+91…" />
-            </Field>
-            <Field label="What should Mitra help with first?">
-              <Pills values={["Medication", "Walk / activity", "Appointment / checkup", "Custom"]} selected={[mitra.routineType]} onToggle={(value) => setMitra({ ...mitra, routineType: value as MitraRoutineType, label: "" })} single />
-            </Field>
-            <Field label={mitra.routineType === "Medication" ? "Family-friendly medicine reference" : "Routine label"}>
-              <input required value={mitra.label} onChange={(event) => setMitra({ ...mitra, label: event.target.value })} placeholder={mitra.routineType === "Medication" ? "e.g. BP wali dawai" : "e.g. evening walk"} />
-            </Field>
-            {mitra.routineType === "Medication" && (
-              <Field label="Exact medicine name" hint="Optional; only if already confirmed">
-                <input value={mitra.exactMedicineName} onChange={(event) => setMitra({ ...mitra, exactMedicineName: event.target.value })} />
-                <small>Prescription upload is not available in this beta flow yet.</small>
-              </Field>
-            )}
-            <Field label="When should it run?">
-              <Pills values={["once_now", "once_scheduled", "daily", "selected_days", "weekly", "monthly"]} labels={["Now", "Once later", "Every day", "Selected days", "Weekly", "Monthly"]} selected={[mitra.timingMode]} onToggle={(value) => setMitra({ ...mitra, timingMode: value as RoutineTimingMode })} single />
-            </Field>
-            {mitra.timingMode === "once_scheduled" && (
-              <div className={styles.twoColumns}>
-                <Field label="Date"><input required type="date" value={mitra.date} onChange={(event) => setMitra({ ...mitra, date: event.target.value })} /></Field>
-                <Field label="Time"><input required type="time" value={mitra.time} onChange={(event) => setMitra({ ...mitra, time: event.target.value })} /></Field>
-              </div>
-            )}
-            {["daily", "selected_days", "weekly", "monthly"].includes(mitra.timingMode) && (
-              <Field label="Time"><input required type="time" value={mitra.time} onChange={(event) => setMitra({ ...mitra, time: event.target.value })} /></Field>
-            )}
-            {["selected_days", "weekly"].includes(mitra.timingMode) && (
-              <Field label={mitra.timingMode === "weekly" ? "Day" : "Days"}>
-                <div className={styles.dayRow}>{DAY_CHOICES.map(([label, value]) => <button className={mitra.daysOfWeek.includes(value) ? styles.daySelected : ""} type="button" key={value} onClick={() => setMitra({ ...mitra, daysOfWeek: mitra.timingMode === "weekly" ? [value] : toggleNumber(mitra.daysOfWeek, value) })}>{label}</button>)}</div>
-              </Field>
-            )}
-            {mitra.timingMode === "monthly" && <Field label="Day of month"><input type="number" min="1" max="28" value={mitra.dayOfMonth} onChange={(event) => setMitra({ ...mitra, dayOfMonth: Number(event.target.value) })} /></Field>}
-            <div className={styles.preview}><span>Message preview</span><p>{mitraPreview}</p></div>
-            <label className={styles.checkLine}>
-              <input type="checkbox" checked={mitra.introduced} onChange={(event) => setMitra({ ...mitra, introduced: event.target.checked })} />
-              <span>{mitra.salutation || "This person"} knows Aevia is being set up and has agreed to receive this routine.</span>
-            </label>
-            <FormError error={error} />
-            <div className={styles.confirmActions}>
-              <button type="button" className={styles.backButton} onClick={goBack}>Back</button>
-              <NextButton>Continue</NextButton>
-            </div>
+      {step === "mitraRoutines" && (
+        <Panel eyebrow="Mitra · routines" title="What should Mitra help with?" supporting="Add up to four starting routines for each person. You can change these later.">
+          <form className={styles.form} onSubmit={submitMitraRoutines}>
+            {mitraPeople.map((person) => {
+              const member = memberByKey(members, person.memberClientKey);
+              return <section className={styles.routineGroup} key={person.memberClientKey}><div className={styles.groupTitle}><div><p>For {member.preferredSalutation || member.name}</p><span>{pathLabel(person.communicationPath)}</span></div><button type="button" disabled={person.routines.length >= 4} onClick={() => patchMitraPerson(person.memberClientKey, { routines: [...person.routines, defaultRoutine()] })}>+ Add routine</button></div>{person.routines.map((routine, index) => <RoutineEditor key={routine.clientKey} routine={routine} index={index} member={member} path={person.communicationPath} caretaker={person.caretakerMemberClientKey ? memberByKey(members, person.caretakerMemberClientKey) : undefined} onChange={(next) => patchRoutine(person.memberClientKey, next)} onRemove={() => patchMitraPerson(person.memberClientKey, { routines: person.routines.filter((item) => item.clientKey !== routine.clientKey) })} />)}</section>;
+            })}
+            <div className={styles.disclosure}>Mitra supports agreed reminders and follow-through. It does not diagnose, medically monitor, or independently verify that medicine was taken.</div>
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
           </form>
         </Panel>
       )}
 
-      {step === "tarla" && (
-        <Panel eyebrow="Meet Tarla" title="Give Tarla enough context to plan one day.">
-          <form className={styles.form} onSubmit={submitTarla}>
-            <div className={styles.disclosure}>Nutrition and meal recommendations are estimates. Please verify allergies, medical diets and other important dietary restrictions.</div>
-            <Field label="Who eats at home?">
-              <div className={styles.personRows}>
-                <p><strong>{identity.name}</strong><span>You · breakfast, lunch, snack, dinner</span></p>
-                <label><input type="checkbox" checked={tarla.includeAdult} onChange={(event) => setTarla({ ...tarla, includeAdult: event.target.checked })} />Another adult</label>
-                {tarla.includeAdult && <input value={tarla.adultName} onChange={(event) => setTarla({ ...tarla, adultName: event.target.value })} placeholder="Their name" />}
-                <label><input type="checkbox" checked={tarla.includeChild} onChange={(event) => setTarla({ ...tarla, includeChild: event.target.checked })} />A child</label>
-                {tarla.includeChild && <input value={tarla.childName} onChange={(event) => setTarla({ ...tarla, childName: event.target.value })} placeholder="Child’s name" />}
-              </div>
-            </Field>
-            <Field label="What kind of food does your household enjoy?">
-              <Pills values={CUISINES} selected={tarla.cuisines} onToggle={(value) => setTarla({ ...tarla, cuisines: toggleText(tarla.cuisines, value) })} />
-            </Field>
-            <Field label="Tell Tarla what your household actually likes eating" hint="Optional">
-              <textarea rows={3} value={tarla.foodContext} onChange={(event) => setTarla({ ...tarla, foodContext: event.target.value })} placeholder="We like simple dal-sabzi meals and pasta on weekends." />
-            </Field>
-            <div className={styles.twoColumns}>
-              <Field label="Household diet">
-                <select value={tarla.dietaryType} onChange={(event) => setTarla({ ...tarla, dietaryType: event.target.value as DietaryType })}>
-                  <option value="vegetarian">Vegetarian</option>
-                  <option value="eggetarian">Eggetarian</option>
-                  <option value="non_vegetarian">Non-vegetarian</option>
-                </select>
-              </Field>
-              <Field label="Must never include" hint="Allergies, comma separated"><input value={tarla.allergies} onChange={(event) => setTarla({ ...tarla, allergies: event.target.value })} placeholder="peanut" /></Field>
-            </div>
-            <Field label="Foods to avoid" hint="Hard restriction, comma separated"><input value={tarla.avoidFoods} onChange={(event) => setTarla({ ...tarla, avoidFoods: event.target.value })} placeholder="mushroom" /></Field>
-            <Field label="Preferences" hint="Tarla will treat these as preferences, not allergies">
-              <Pills values={["low oil", "low spice", "avoid deep fried"]} selected={tarla.preferences} onToggle={(value) => setTarla({ ...tarla, preferences: toggleText(tarla.preferences, value) })} />
-            </Field>
-            <label className={styles.checkLine}><input type="checkbox" checked={tarla.tuesdayVegetarian} onChange={(event) => setTarla({ ...tarla, tuesdayVegetarian: event.target.checked })} /><span>Tuesday meals must be vegetarian</span></label>
-            <Field label="Do you want Tarla to plan around nutrition goals?">
-              <Pills values={["Not now", "Yes"]} selected={[tarla.nutrition ? "Yes" : "Not now"]} onToggle={(value) => setTarla({ ...tarla, nutrition: value === "Yes" })} single />
-            </Field>
-            {tarla.nutrition && (
-              <div className={styles.nutritionBox}>
-                <div className={styles.threeColumns}>
-                  <Field label="Age"><input type="number" min="18" max="120" value={tarla.age} onChange={(event) => setTarla({ ...tarla, age: Number(event.target.value) })} /></Field>
-                  <Field label="Sex used by equation"><select value={tarla.sex} onChange={(event) => setTarla({ ...tarla, sex: event.target.value as "male" | "female" })}><option value="male">Male</option><option value="female">Female</option></select></Field>
-                  <Field label="Activity"><select value={tarla.activityLevel} onChange={(event) => setTarla({ ...tarla, activityLevel: event.target.value as typeof tarla.activityLevel })}><option value="sedentary">Sedentary</option><option value="lightly_active">Lightly active</option><option value="moderately_active">Moderately active</option><option value="very_active">Very active</option><option value="extra_active">Extra active</option></select></Field>
-                </div>
-                <div className={styles.threeColumns}>
-                  <Field label="Height (cm)"><input type="number" min="100" max="250" value={tarla.heightCm} onChange={(event) => setTarla({ ...tarla, heightCm: Number(event.target.value) })} /></Field>
-                  <Field label="Weight (kg)"><input type="number" min="25" max="300" value={tarla.weightKg} onChange={(event) => setTarla({ ...tarla, weightKg: Number(event.target.value) })} /></Field>
-                  <Field label="Goal"><select value={tarla.nutritionGoal} onChange={(event) => setTarla({ ...tarla, nutritionGoal: event.target.value as typeof tarla.nutritionGoal })}><option value="maintenance">Maintenance estimate</option><option value="deficit_10">About 10% deficit</option><option value="deficit_20">About 20% deficit</option><option value="custom">Custom calories</option></select></Field>
-                </div>
-                <div className={styles.twoColumns}>
-                  {tarla.nutritionGoal === "custom" && <Field label="Daily calories"><input type="number" min="800" max="6000" value={tarla.calorieTarget} onChange={(event) => setTarla({ ...tarla, calorieTarget: Number(event.target.value) })} /></Field>}
-                  <Field label="Daily protein (g)" hint="Editable"><input type="number" min="1" max="400" value={tarla.proteinTarget} onChange={(event) => setTarla({ ...tarla, proteinTarget: Number(event.target.value) })} /></Field>
-                </div>
-                <p>This uses the deterministic Mifflin–St Jeor estimate and an activity factor. It is not medical advice.</p>
-              </div>
-            )}
-            <Field label="Who prepares meals?">
-              <Pills values={["hired", "family", "self", "different"]} labels={["Hired cook", "Family member", "I cook", "Different people"]} selected={[tarla.cookingRole]} onToggle={(value) => setTarla({ ...tarla, cookingRole: value as CookingRole })} single />
-            </Field>
-            {tarla.cookingRole !== "self" && <Field label={tarla.cookingRole === "different" ? "First cooking person’s name" : "Cooking person’s name"}><input required value={tarla.cookingName} onChange={(event) => setTarla({ ...tarla, cookingName: event.target.value })} placeholder="e.g. Sunita Didi" /></Field>}
-            <div className={styles.twoColumns}>
-              <Field label={tarla.cookingRole === "self" ? "Your WhatsApp" : "Their WhatsApp"} hint="International format"><input required pattern="^\+[1-9]\d{9,14}$" value={tarla.cookingPhone} onChange={(event) => setTarla({ ...tarla, cookingPhone: event.target.value })} placeholder="+91…" /></Field>
-              <Field label="Preferred language"><select value={tarla.cookingLanguage} onChange={(event) => setTarla({ ...tarla, cookingLanguage: event.target.value as Language })}><option>English</option><option>Hindi</option><option>Hinglish</option></select></Field>
-            </div>
-            <Field label="How often do they cook?">
-              <Pills values={["once_daily", "twice_daily"]} labels={["Once daily", "Twice daily"]} selected={[tarla.visitFrequency]} onToggle={(value) => setTarla({ ...tarla, visitFrequency: value as VisitFrequency })} single />
-            </Field>
-            <div className={styles.twoColumns}>
-              <Field label={tarla.visitFrequency === "once_daily" ? "Arrival time" : "Morning arrival"}><input required type="time" value={tarla.morningTime} onChange={(event) => setTarla({ ...tarla, morningTime: event.target.value })} /></Field>
-              {tarla.visitFrequency === "twice_daily" && <Field label="Evening arrival"><input required type="time" value={tarla.eveningTime} onChange={(event) => setTarla({ ...tarla, eveningTime: event.target.value })} /></Field>}
-            </div>
-            <p className={styles.contextNote}>Instructions are scheduled 30 minutes before arrival. The time stays configurable in the runtime.</p>
-            <Field label="First plan date"><input required type="date" value={tarla.planDate} onChange={(event) => setTarla({ ...tarla, planDate: event.target.value })} /></Field>
-            <FormError error={error} />
-            <div className={styles.confirmActions}>
-              <button type="button" className={styles.backButton} onClick={goBack}>Back</button>
-              <NextButton>Continue</NextButton>
-            </div>
+      {step === "tarlaEaters" && (
+        <Panel eyebrow="Tarla · household" title="Who should Tarla plan for?" supporting="Tarla uses the people already in your shared household.">
+          <form className={styles.form} onSubmit={submitTarlaEaters}>
+            <div className={styles.inclusionList}>{householdMembers.map((member) => { const included = tarla.eaterMemberClientKeys.includes(member.clientKey); return <button key={member.clientKey} type="button" aria-pressed={included} onClick={() => setTarla({ ...tarla, eaterMemberClientKeys: toggleText(tarla.eaterMemberClientKeys, member.clientKey), nutritionPeople: ensureNutritionPeople(tarla.nutritionPeople, member.clientKey) })}><span><strong>{member.name}</strong><small>{member.relationship} · {member.lifeStage}</small></span><em>{included ? "Included" : "Not included"}</em><i>{included ? "✓" : "+"}</i></button>; })}</div>
+            <button className={styles.addButton} type="button" onClick={() => setMembers((current) => [...current, defaultHouseholdMember()])}>+ Add household member</button>
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
           </form>
         </Panel>
       )}
 
-      {step === "understood" && (
-        <Panel eyebrow="Review before activation" title="Here’s what Aevia understood.">
-          <div className={styles.summary}>
-            <SummaryRow label="Household" value={identity.householdName || identity.name + "'s household"} />
-            <SummaryRow label="Aevia will start with" value={choice === "mitra" ? "Mitra" : choice === "tarla" ? "Tarla" : "Mitra and Tarla"} />
-            {sharedContext.trim() && <SummaryRow label="Your own context" value={sharedContext.trim()} />}
-            {(choice === "mitra" || choice === "both") && <SummaryRow label="Mitra" value={mitra.salutation + " · " + mitra.language + " · " + mitra.label + " · " + timingLabel(mitra.timingMode)} />}
-            {(choice === "tarla" || choice === "both") && <SummaryRow label="Tarla" value={tarla.dietaryType.replace("_", "-") + " · " + tarla.cuisines.join(", ") + " · " + (tarla.visitFrequency === "once_daily" ? "one daily cooking visit" : "two daily cooking visits")} />}
+      {step === "tarlaFood" && (
+        <Panel eyebrow="Tarla · food" title="What does your household actually like eating?" supporting="Preferences help Tarla plan familiar meals. Restrictions are treated more carefully.">
+          <form className={styles.form} onSubmit={submitTarlaFood}>
+            <Field label="Cuisines"><Pills values={CUISINES} selected={tarla.cuisines} onToggle={(value) => setTarla({ ...tarla, cuisines: toggleText(tarla.cuisines, value) })} /></Field>
+            {tarla.cuisines.length > 0 && <Suggestion>Tarla can suggest familiar dishes from {tarla.cuisines.slice(0, 2).join(" and ")}. You decide what it remembers.</Suggestion>}
+            <TokenField label="Tell Tarla what your household loves eating" value={tarla.favouriteFoods} onChange={(value) => setTarla({ ...tarla, favouriteFoods: value })} placeholder="Add dishes or ingredients, separated by commas" />
+            <TokenField label="Foods the household usually dislikes" value={tarla.dislikedFoods} onChange={(value) => setTarla({ ...tarla, dislikedFoods: value })} placeholder="These are preferences, not allergies" />
+            <section className={styles.restrictionBox}><p>Important restrictions</p><TokenField label="Any allergies or foods we should never include?" value={tarla.allergies} onChange={(value) => setTarla({ ...tarla, allergies: value })} placeholder="Add allergies, separated by commas" /><TokenField label="Other hard restrictions" value={tarla.hardRestrictions} onChange={(value) => setTarla({ ...tarla, hardRestrictions: value })} placeholder="Add foods that must not be included" /></section>
+            <Field label="Preferences" hint="Tarla treats these as preferences, not allergies"><Pills values={["Less oil", "Less spicy", "Avoid deep fried"]} selected={tarla.softerPreferences} onToggle={(value) => setTarla({ ...tarla, softerPreferences: toggleText(tarla.softerPreferences, value) })} /></Field>
+            <TokenField label="Add your own preference" value={tarla.softerPreferences.filter((item) => !["Less oil", "Less spicy", "Avoid deep fried"].includes(item))} onChange={(custom) => setTarla({ ...tarla, softerPreferences: [...tarla.softerPreferences.filter((item) => ["Less oil", "Less spicy", "Avoid deep fried"].includes(item)), ...custom] })} placeholder="e.g. lighter dinners" />
+            <Field label="Tell Tarla anything else about food" hint="Optional"><textarea rows={4} value={tarla.foodContext} onChange={(e) => setTarla({ ...tarla, foodContext: e.target.value })} placeholder="We enjoy simple weekday meals and a bigger Sunday lunch." /></Field>
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
+          </form>
+        </Panel>
+      )}
+
+      {step === "tarlaRules" && (
+        <Panel eyebrow="Tarla · food rules" title="Any days with different food rules?" supporting="Add only the rules your household actually follows.">
+          <form className={styles.form} onSubmit={submitTarlaRules}>
+            <div className={styles.ruleList}>{tarla.rules.map((rule) => <FoodRuleEditor key={rule.clientKey} rule={rule} onChange={(next) => setTarla({ ...tarla, rules: tarla.rules.map((item) => item.clientKey === next.clientKey ? next : item) })} onRemove={() => setTarla({ ...tarla, rules: tarla.rules.filter((item) => item.clientKey !== rule.clientKey) })} />)}</div>
+            <button type="button" className={styles.addButton} onClick={() => setTarla({ ...tarla, rules: [...tarla.rules, defaultFoodRule()] })}>+ Add rule</button>
+            {tarla.rules.length > 0 && <Suggestion>{tarla.rules.map((rule) => `${dayNames(rule.daysOfWeek)} · ${rule.description || "Add rule"}`).join("  •  ")}</Suggestion>}
+            <section className={styles.nutritionSection}>
+              <h2>How should Tarla plan meals?</h2>
+              <div className={styles.modeCards}><button type="button" aria-pressed={tarla.nutritionMode === "balanced"} onClick={() => setTarla({ ...tarla, nutritionMode: "balanced" })}><strong>Keep meals balanced</strong><span>Recommended. No body measurements needed.</span></button><button type="button" aria-pressed={tarla.nutritionMode === "nutrition_goal"} onClick={() => setTarla({ ...tarla, nutritionMode: "nutrition_goal" })}><strong>Plan around nutrition goals</strong><span>Optional per-person planning estimates.</span></button></div>
+              {tarla.nutritionMode === "nutrition_goal" && <div className={styles.nutritionPeople}>{tarla.eaterMemberClientKeys.map((key) => { const member = memberByKey(members, key); const nutrition = tarla.nutritionPeople.find((item) => item.memberClientKey === key) ?? defaultNutrition(key); if (!isNutritionEstimateSupported(member)) return <article className={styles.unsupportedNutrition} key={key}><strong>{member.name}</strong><p>Tarla will use balanced, age-appropriate planning here. This beta does not apply the adult estimate to {member.lifeStage === "child" ? "children" : "seniors"}.</p></article>; return <NutritionEditor key={key} member={member} value={nutrition} onChange={(next) => setTarla({ ...tarla, nutritionPeople: upsertNutrition(tarla.nutritionPeople, next) })} />; })}<p className={styles.helper}>Aevia uses these details to estimate energy and nutrition needs. These are planning estimates, not medical advice.</p></div>}
+            </section>
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
+          </form>
+        </Panel>
+      )}
+
+      {step === "tarlaCooks" && (
+        <Panel eyebrow="Tarla · cooking" title="Who prepares meals?" supporting="Add the people Tarla may coordinate with, and how their cooking schedule works.">
+          <form className={styles.form} onSubmit={submitTarlaCooks}>
+            <div className={styles.cookChoice}><button type="button" onClick={() => addCookingPerson("hired_cook")}>Hired cook</button><button type="button" onClick={() => addCookingPerson("family_cook")}>Family member</button><button type="button" onClick={() => addCookingPerson("primary_user")}>I cook</button><button type="button" onClick={() => addCookingPerson("other")}>Different person</button></div>
+            {tarla.cookingPeople.map((cook, index) => <CookEditor key={cook.clientKey} cook={cook} index={index} members={members} onMemberChange={(next) => updateMemberState(setMembers, next)} onChange={(next) => setTarla({ ...tarla, cookingPeople: tarla.cookingPeople.map((item) => item.clientKey === next.clientKey ? next : item) })} onRemove={() => removeCookingPerson(cook)} />)}
+            <p className={styles.helper}>Times are shown with AM or PM. You can save more than one cooking person and schedule.</p>
+            <FormError error={error} /><Actions back={goBack} busy={busy} />
+          </form>
+        </Panel>
+      )}
+
+      {step === "anythingElse" && (
+        <Panel eyebrow="Household context" title="Anything else Aevia should know?" supporting="You've given Aevia the basics. Add anything that would help it understand your household better.">
+          <form className={styles.form} onSubmit={(event) => { event.preventDefault(); setStep("review"); }}><Field label="Household context" hint="Optional"><textarea rows={7} value={anythingElse} onChange={(e) => setAnythingElse(e.target.value)} placeholder="We usually eat lighter dinners. Our cook doesn't come on Sundays." /></Field><p className={styles.helper}>Aevia can learn more from your corrections over time. You can review and change what it remembers.</p><Actions back={goBack} busy={busy} /></form>
+        </Panel>
+      )}
+
+      {step === "review" && (
+        <Panel eyebrow="Review" title="Here's what Aevia understood." supporting="Check the details before activation. You can edit any section without starting again.">
+          <div className={styles.reviewGrid}>
+            <ReviewSection title="Household" edit={() => setStep("household")}><ul>{householdMembers.map((member) => <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {capitalize(member.lifeStage)}{member.preferredSalutation ? ` · “${member.preferredSalutation}”` : ""}</span></li>)}</ul></ReviewSection>
+            {(choice === "mitra" || choice === "both") && <ReviewSection title="Parents & seniors with Mitra" edit={() => setStep("mitraWho")}><ul>{mitraPeople.map((person) => { const member = memberByKey(members, person.memberClientKey); return <li key={person.memberClientKey}><strong>Mitra will help {member.preferredSalutation || member.name}</strong><span>{member.preferredLanguage} · {pathLabel(person.communicationPath)}</span>{person.routines.map((routine) => <small key={routine.clientKey}>{routine.label} · {routineSchedule(routine)}{routine.notes ? ` · ${routine.notes}` : ""}</small>)}</li>; })}</ul></ReviewSection>}
+            {(choice === "tarla" || choice === "both") && <><ReviewSection title="Kitchen & meals with Tarla" edit={() => setStep("tarlaEaters")}><p>Tarla will plan for {tarla.eaterMemberClientKeys.map((key) => memberByKey(members, key).name).join(", ")}.</p><p>{tarla.cuisines.join(" · ")}</p>{tarla.allergies.length > 0 && <p><strong>Allergies:</strong> {tarla.allergies.join(", ")}</p>}{tarla.hardRestrictions.length > 0 && <p><strong>Hard restrictions:</strong> {tarla.hardRestrictions.join(", ")}</p>}<p><strong>Preferences:</strong> {[...tarla.favouriteFoods, ...tarla.dislikedFoods, ...tarla.softerPreferences].join(", ") || "None added"}</p>{tarla.foodContext && <p><strong>Food context:</strong> {tarla.foodContext}</p>}<p><strong>Nutrition:</strong> {tarla.nutritionMode === "balanced" ? "Balanced meals" : "Per-person goals where supported"}</p>{tarla.nutritionMode === "nutrition_goal" && <ul>{tarla.eaterMemberClientKeys.map((key) => { const member = memberByKey(members, key); const profile = tarla.nutritionPeople.find((item) => item.memberClientKey === key); return <li key={key}><strong>{member.name}</strong><span>{profile?.enabled && isNutritionEstimateSupported(member) ? nutritionGoalLabel(profile.goal) : "Balanced planning"}</span></li>; })}</ul>}</ReviewSection><ReviewSection title="Food rules" edit={() => setStep("tarlaRules")}><ul>{tarla.rules.length ? tarla.rules.map((rule) => <li key={rule.clientKey}><strong>{dayNames(rule.daysOfWeek)}</strong><span>{rule.description}{rule.temporary ? ` · until ${rule.expiresOn}` : ""}</span></li>) : <li>No day-specific rules</li>}</ul></ReviewSection><ReviewSection title="Cooking people" edit={() => setStep("tarlaCooks")}><ul>{tarla.cookingPeople.map((cook) => { const member = memberByKey(members, cook.memberClientKey); return <li key={cook.clientKey}><strong>{member.name}</strong><span>{cookRoleLabel(cook.relationshipType)} · {cook.preferredLanguage}</span>{cook.visits.map((visit) => <small key={visit.clientKey}>{visit.label} · {dayNames(visit.daysOfWeek)} · {visit.time12}</small>)}</li>; })}</ul></ReviewSection></>}
+            <ReviewSection title="Anything else" edit={() => setStep("anythingElse")}><p>{anythingElse || "No additional context added."}</p></ReviewSection>
           </div>
-          <div className={styles.confirmActions}>
-            <button type="button" className={styles.backButton} onClick={() => setStep(choice === "mitra" ? "mitra" : "tarla")}>Edit</button>
-            <button type="button" className={styles.primaryButton} onClick={activate} disabled={busy}>{busy ? "Saving the setup…" : Object.keys(existingIds).length ? "Confirm and save changes" : "Confirm and create"}</button>
-          </div>
-          <p className={styles.activationNote}>Automated verification uses the development transport. This will not send a real WhatsApp message.</p>
-          <FormError error={error} />
+          <FormError error={error} /><button type="button" className={styles.primaryButton} onClick={confirmSetup} disabled={busy}>{busy ? "Saving your household…" : existingSession?.setup.hasSpecialistSetup ? "Confirm and save changes" : "Confirm and create"}</button><p className={styles.helper}>Aevia will activate this setup only after you confirm.</p>
         </Panel>
       )}
 
-      {step === "plan" && tarlaSetup && (
-        <Panel eyebrow="Your first Tarla plan" title={"A full day for " + tarla.planDate}>
-          {plan === undefined ? (
-            <div className={styles.loadingCard}>Calculating the day from structured recipes…</div>
-          ) : (
-            <>
-              <div className={styles.mealGrid}>
-                {plan.meals.map((meal) => (
-                  <article key={meal.join._id}>
-                    <span>{meal.join.mealSlot}</span>
-                    <h3>{meal.mealPlan.selectedTemplateName}</h3>
-                    <p>{meal.calculated.plan.items.map((item) => item.recipeName).join(" · ")}</p>
-                    <small>{round(meal.mealPlan.totalNutrition.caloriesKcal)} kcal · {round(meal.mealPlan.totalNutrition.proteinG)} g protein</small>
-                  </article>
-                ))}
-              </div>
-              <div className={styles.dayTotals}>
-                <p><span>Full day</span><strong>{round(plan.dayPlan.totalNutrition.caloriesKcal)} kcal</strong></p>
-                <p><span>Protein</span><strong>{round(plan.dayPlan.totalNutrition.proteinG)} g</strong></p>
-                <p><span>Carbs</span><strong>{round(plan.dayPlan.totalNutrition.carbohydratesG)} g</strong></p>
-                <p><span>Fat</span><strong>{round(plan.dayPlan.totalNutrition.fatG)} g</strong></p>
-              </div>
-              {plan.dayPlan.memberDailyNutrition[0] && (
-                <p className={styles.variance}>
-                  {plan.dayPlan.memberDailyNutrition[0].targets.caloriesKcal
-                    ? "For " + plan.dayPlan.memberDailyNutrition[0].memberName + ": " + signed(plan.dayPlan.memberDailyNutrition[0].variance.caloriesKcal) + " kcal versus the configured daily target."
-                    : "No calorie target was requested. Nutrition is shown as an estimate, not a prescribed target."}
-                </p>
-              )}
-              <div className={styles.changeBox}>
-                <Field label="Want a change?" hint="Tarla will save explicit food corrections">
-                  <textarea rows={2} value={changeRequest} onChange={(event) => setChangeRequest(event.target.value)} placeholder="e.g. Don’t give paneer again this week." />
-                </Field>
-                <button type="button" onClick={changePlan} disabled={busy || !changeRequest.trim()}>Change this plan</button>
-              </div>
-              {tarlaSetup.cookingRole !== "self" && (
-                <div className={styles.primingBox}>
-                  <span>Send this introduction from your own WhatsApp first</span>
-                  <p>{tarlaSetup.primingMessage}</p>
-                  <label className={styles.checkLine}><input type="checkbox" checked={primed} onChange={(event) => setPrimed(event.target.checked)} /><span>I have introduced Aevia and the cooking person agreed to receive instructions.</span></label>
-                </div>
-              )}
-              <FormError error={error} />
-              <button type="button" className={styles.primaryButton} onClick={approvePlan} disabled={busy}>{busy ? "Approving and scheduling…" : "Approve and activate"}</button>
-              <p className={styles.activationNote}>The approved plan will schedule real backend work through the development transport only.</p>
-            </>
-          )}
+      {step === "plan" && planSetup && (
+        <Panel eyebrow="Your first Tarla plan" title="A household plan you can understand." supporting={`${tarla.firstPlanDate} · ${tarla.nutritionMode === "balanced" ? "Balanced meals" : "Nutrition goals where configured"}`}>
+          {plan === undefined ? <div className={styles.loadingCard}>Building the first plan…</div> : <div className={styles.planStack}>{plan.meals.map((meal) => <article className={styles.mealPlan} key={meal.join._id}><header><span>{meal.join.mealSlot}</span><h2>{meal.mealPlan.selectedTemplateName}</h2></header>{meal.calculated.plan.items.map((item) => <div className={styles.portionBlock} key={item.recipeId}><h3>{item.recipeName}</h3><div>{item.memberPortions.map((portion) => <p key={portion.memberId}><strong>{portion.memberName}</strong><span>{formatHouseholdMeasure(personHouseholdMeasure(item.recipeId, portion.servingEquivalent))}</span>{memberHasNutrition(plan.dayPlan.memberDailyNutrition, portion.memberId) && <small>{Math.round(portion.nutrition.caloriesKcal)} kcal · {Math.round(portion.nutrition.proteinG)} g protein estimate</small>}</p>)}</div></div>)}</article>)}</div>}
+          {plan && <section className={styles.kitchenSummary}><p>For the kitchen</p>{plan.meals.map((meal) => <div key={meal.join._id}><strong>{capitalize(meal.join.mealSlot)}</strong>{meal.calculated.plan.items.map((item) => <span key={item.recipeId}>{item.recipeName} · {formatHouseholdMeasure(cumulativeHouseholdMeasure(item.recipeId, item.memberPortions.map((portion) => portion.servingEquivalent)))}</span>)}</div>)}</section>}
+          <section className={styles.changeBox}><Field label="Want a change?" hint="Optional"><textarea rows={2} value={planChange} onChange={(e) => setPlanChange(e.target.value)} placeholder="Don't give paneer again this week." /></Field><button type="button" onClick={changePlan} disabled={busy || !planChange.trim()}>Change this plan</button></section>
+          {planSetup.relationshipType === "hired_cook" && <section className={styles.primingBox}><p>Introduce Tarla first</p><blockquote>{planSetup.primingMessage}</blockquote><div className={styles.inlineActions}><button type="button" onClick={copyIntro}>{copied ? "Copied" : "Copy message"}</button><a href={`https://wa.me/${planSetup.phone.replace(/\D/g, "")}?text=${encodeURIComponent(planSetup.primingMessage)}`} target="_blank" rel="noreferrer">Open WhatsApp</a></div><label className={styles.checkLine}><input type="checkbox" checked={primed} onChange={(e) => setPrimed(e.target.checked)} /><span>I&apos;ve introduced Tarla and they agreed to receive kitchen messages.</span></label><small>Opening WhatsApp does not send the message.</small></section>}
+          <FormError error={error} /><button type="button" className={styles.primaryButton} onClick={approvePlan} disabled={busy}>{busy ? "Approving…" : "Approve and activate"}</button>
         </Panel>
       )}
     </main>
   );
-}
 
-function Panel({
-  eyebrow,
-  title,
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return <section className={styles.panel}><p className={styles.eyebrow}>{eyebrow}</p><h1>{title}</h1>{children}</section>;
-}
-
-function initialOnboardingState(existingSession: ExistingSession | null) {
-  const identity = {
-    name: "",
-    email: "",
-    householdName: "",
-    timezone:
-      typeof window === "undefined"
-        ? "Asia/Kolkata"
-        : Intl.DateTimeFormat().resolvedOptions().timeZone,
-    accepted: false,
-  };
-  const mitra: MitraInput = {
-    name: "",
-    relationship: "",
-    salutation: "",
-    language: "Hinglish",
-    phone: "",
-    routineType: "Walk / activity",
-    label: "",
-    exactMedicineName: "",
-    timingMode: "once_scheduled",
-    date: localDate(1),
-    time: "18:00",
-    daysOfWeek: [1, 2, 3, 4, 5],
-    dayOfMonth: 1,
-    introduced: false,
-  };
-  const tarla: TarlaInput = {
-    includeAdult: false,
-    adultName: "",
-    includeChild: false,
-    childName: "",
-    dietaryType: "vegetarian" as DietaryType,
-    cuisines: [] as string[],
-    foodContext: "",
-    allergies: "",
-    avoidFoods: "",
-    preferences: [] as string[],
-    tuesdayVegetarian: false,
-    nutrition: false,
-    age: 30,
-    sex: "male" as "male" | "female",
-    heightCm: 170,
-    weightKg: 70,
-    activityLevel: "lightly_active",
-    nutritionGoal: "maintenance",
-    calorieTarget: 1800,
-    proteinTarget: 80,
-    cookingRole: "hired" as CookingRole,
-    cookingName: "",
-    cookingLanguage: "Hinglish" as Language,
-    cookingPhone: "",
-    visitFrequency: "once_daily" as VisitFrequency,
-    morningTime: "08:00",
-    eveningTime: "18:00",
-    planDate: localDate(1),
-  };
-  if (!existingSession) {
-    return {
-      step: initialOnboardingStep({
-        hasExistingSession: false,
-        hasSpecialistSetup: false,
-      }),
-      identity,
-      sessionIds: undefined,
-      choice: "mitra" as AgentChoice,
-      sharedContext: "",
-      mitra,
-      tarla,
-      existingIds: {} as ExistingSetupIds,
-    };
+  function removeMember(member: HouseholdMemberDraft) {
+    setMembers((current) => current.filter((item) => item.clientKey !== member.clientKey));
+    if (member.memberId) setRemovedMemberIds((current) => [...new Set([...current, member.memberId!])]);
+    setMitraPeople((current) => current.filter((item) => item.memberClientKey !== member.clientKey && item.caretakerMemberClientKey !== member.clientKey));
+    setTarla((current) => ({ ...current, eaterMemberClientKeys: current.eaterMemberClientKeys.filter((key) => key !== member.clientKey), cookingPeople: current.cookingPeople.filter((cook) => cook.memberClientKey !== member.clientKey) }));
   }
 
-  const savedIdentity = {
-    name: existingSession.profile.name,
-    email: existingSession.profile.email,
-    householdName: existingSession.household.name,
-    timezone: existingSession.household.timezone,
-    accepted: true,
-  };
-  const setup = existingSession.setup as ExistingSession["setup"] | undefined;
-  if (!setup) {
-    return {
-      step: initialOnboardingStep({
-        hasExistingSession: true,
-        hasSpecialistSetup: false,
-      }),
-      identity: savedIdentity,
-      sessionIds: {
-        householdId: existingSession.household._id,
-        memberId: existingSession.member._id,
-      },
-      choice: "mitra" as AgentChoice,
-      sharedContext: "",
-      mitra,
-      tarla,
-      existingIds: {} as ExistingSetupIds,
-    };
-  }
-  const existingIds: ExistingSetupIds = {};
-  const storedMitra = setup.mitra;
-  if (storedMitra) {
-    Object.assign(mitra, {
-      name: storedMitra.member.name,
-      relationship: storedMitra.parent.salutation ?? storedMitra.member.role,
-      salutation: storedMitra.parent.salutation ?? "",
-      language: (storedMitra.parent.preferredLanguage ??
-        storedMitra.member.languagePreference ??
-        "English") as Language,
-      phone: storedMitra.endpoint.address,
-      routineType: normalizedRoutineType(storedMitra.routine.type),
-      label: storedMitra.routine.label ?? storedMitra.routine.prompt,
-      ...routineInputFromStored(storedMitra.routine),
-      introduced: storedMitra.readiness === "ready",
-    });
-    existingIds.mitra = {
-      memberId: storedMitra.member._id,
-      parentId: storedMitra.parent._id,
-      endpointId: storedMitra.endpoint._id,
-      routineId: storedMitra.routine._id,
-    };
+  function toggleMitraPerson(member: HouseholdMemberDraft) {
+    const existing = mitraPeople.find((item) => item.memberClientKey === member.clientKey);
+    setMitraPeople(existing ? mitraPeople.filter((item) => item.memberClientKey !== member.clientKey) : [...mitraPeople, { memberClientKey: member.clientKey, communicationPath: "senior_directly", directPhone: "", caretakerPhone: "", consentConfirmed: false, routines: [defaultRoutine()] }]);
   }
 
-  const storedTarla = setup.tarla;
-  if (storedTarla) {
-    const profile = storedTarla.primaryProfile;
-    const visits = [...storedTarla.cookVisits].sort((left, right) =>
-      left.arrivalTime.localeCompare(right.arrivalTime),
-    );
-    const foodContext = splitStoredFoodContext(storedTarla.foodContext);
-    const cookingRole = storedCookingRole(
-      storedTarla.cookMember?.role,
-      storedTarla.cookMember?._id === existingSession.member._id,
-    );
-    Object.assign(tarla, {
-      includeAdult: Boolean(storedTarla.adultMember),
-      adultName: storedTarla.adultMember?.name ?? "",
-      includeChild: Boolean(storedTarla.childMember),
-      childName: storedTarla.childMember?.name ?? "",
-      dietaryType: (profile?.dietaryType ?? tarla.dietaryType) as DietaryType,
-      cuisines: listFromText(storedTarla.cuisines),
-      foodContext: foodContext.freeText,
-      allergies: profile?.allergies.join(", ") ?? "",
-      avoidFoods: profile?.avoidedFoods.join(", ") ?? "",
-      preferences: foodContext.preferences,
-      tuesdayVegetarian: storedTarla.dietaryRules.some(
-        (rule) =>
-          rule.ruleType === "vegetarian_days" && rule.daysOfWeek?.includes(2),
-      ),
-      nutrition: profile?.nutritionRequested ?? false,
-      age: existingSession.member.age ?? tarla.age,
-      sex: existingSession.member.sex === "female" ? "female" : "male",
-      heightCm: existingSession.member.heightCm ?? tarla.heightCm,
-      weightKg: existingSession.member.weightKg ?? tarla.weightKg,
-      activityLevel: profile?.activityLevel ?? tarla.activityLevel,
-      nutritionGoal: profile?.nutritionGoal ?? tarla.nutritionGoal,
-      calorieTarget: profile?.calorieTargetKcal ?? tarla.calorieTarget,
-      proteinTarget: profile?.proteinTargetG ?? tarla.proteinTarget,
-      cookingRole,
-      cookingName:
-        cookingRole === "self" ? "" : storedTarla.cookMember?.name ?? "",
-      cookingLanguage: (storedTarla.cookEndpoint?.preferredLanguage ??
-        storedTarla.cookMember?.languagePreference ??
-        "English") as Language,
-      cookingPhone: storedTarla.cookEndpoint?.address ?? "",
-      visitFrequency: visits.length > 1 ? "twice_daily" : "once_daily",
-      morningTime: visits[0]?.arrivalTime ?? tarla.morningTime,
-      eveningTime: visits[1]?.arrivalTime ?? tarla.eveningTime,
-      planDate: storedTarla.latestDayPlan?.targetDate ?? tarla.planDate,
-    });
-    existingIds.tarla = {
-      adultMemberId: storedTarla.adultMember?._id,
-      childMemberId: storedTarla.childMember?._id,
-      cookMemberId: storedTarla.cookMember?._id,
-      cookStateId: storedTarla.cookState?._id,
-      endpointId: storedTarla.cookEndpoint?._id,
-    };
+  function patchMitraPerson(key: string, patch: Partial<MitraPersonDraft>) {
+    setMitraPeople((current) => current.map((person) => person.memberClientKey === key ? { ...person, ...patch } : person));
   }
 
-  return {
-    step: initialOnboardingStep({
-      hasExistingSession: true,
-      hasSpecialistSetup: Boolean(setup.mitra || setup.tarla),
-    }),
-    identity: savedIdentity,
-    sessionIds: {
-      householdId: existingSession.household._id,
-      memberId: existingSession.member._id,
-    },
-    choice: setup.agentChoice as AgentChoice,
-    sharedContext: setup.sharedContext,
-    mitra,
-    tarla,
-    existingIds,
-  };
-}
+  function patchRoutine(personKey: string, routine: MitraRoutineDraft) {
+    const person = mitraPeople.find((item) => item.memberClientKey === personKey)!;
+    patchMitraPerson(personKey, { routines: person.routines.map((item) => item.clientKey === routine.clientKey ? routine : item) });
+  }
 
-function Field({
-  label,
-  hint,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return <label className={styles.field}><span>{label}{hint && <small>{hint}</small>}</span>{children}</label>;
-}
+  function addExternalCaretaker(personKey: string) {
+    const member = defaultHouseholdMember({ memberKind: "external", relationship: "Caretaker", lifeStage: "adult" });
+    setMembers((current) => [...current, member]);
+    patchMitraPerson(personKey, { caretakerMemberClientKey: member.clientKey });
+  }
 
-function NextButton({
-  busy,
-  children,
-}: {
-  busy?: boolean;
-  children: React.ReactNode;
-}) {
-  return <button className={styles.primaryButton} disabled={busy}>{busy ? "Saving…" : children}</button>;
-}
-
-function FormError({ error }: { error: string }) {
-  return error ? <p className={styles.error} role="alert">{error}</p> : null;
-}
-
-function ChoiceCard({
-  selected,
-  onSelect,
-  letter,
-  title,
-  body,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  letter: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <button className={selected ? styles.choiceSelected : ""} type="button" onClick={onSelect} aria-pressed={selected}>
-      <span>{letter}</span><strong>{title}</strong><p>{body}</p>
-    </button>
-  );
-}
-
-function Pills({
-  values,
-  labels,
-  selected,
-  onToggle,
-  single,
-}: {
-  values: string[];
-  labels?: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  single?: boolean;
-}) {
-  return (
-    <div className={styles.pills}>
-      {values.map((value, index) => (
-        <button
-          type="button"
-          aria-pressed={selected.includes(value)}
-          className={selected.includes(value) ? styles.pillSelected : ""}
-          onClick={() => onToggle(value)}
-          key={value}
-        >
-          {labels?.[index] ?? value}{!single && selected.includes(value) ? " ✓" : ""}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function SummaryRow({ label, value }: { label: string; value: string }) {
-  return <div><span>{label}</span><p>{value}</p></div>;
-}
-
-function visibleSteps(choice: AgentChoice): Step[] {
-  if (choice === "both") return ["identity", "choice", "shared", "mitra", "tarla", "understood", "plan"];
-  if (choice === "tarla") return ["identity", "choice", "shared", "tarla", "understood", "plan"];
-  return ["identity", "choice", "shared", "mitra", "understood"];
-}
-
-function routineTiming(
-  input: MitraInput,
-  timezone: string,
-):
-  | { kind: "once_now"; timezone: string }
-  | { kind: "once_scheduled"; timezone: string; scheduledAt: number }
-  | {
-      kind: "recurring";
-      timezone: string;
-      recurrence: {
-        frequency: "daily" | "selected_days" | "weekly" | "monthly";
-        time: string;
-        daysOfWeek?: number[];
-        dayOfMonth?: number;
-      };
-    } {
-  if (input.timingMode === "once_now") return { kind: "once_now", timezone };
-  if (input.timingMode === "once_scheduled") {
-    const scheduledAt = new Date(input.date + "T" + input.time + ":00").getTime();
-    if (!Number.isFinite(scheduledAt) || scheduledAt <= Date.now()) {
-      throw new Error("Choose a future date and time.");
+  function addCookingPerson(type: CookingPersonDraft["relationshipType"]) {
+    let memberKey = primary?.clientKey ?? members[0].clientKey;
+    if (type === "hired_cook" || type === "other") {
+      const external = defaultHouseholdMember({ memberKind: "external", relationship: type === "hired_cook" ? "Hired cook" : "Cooking person", lifeStage: "adult" });
+      memberKey = external.clientKey;
+      setMembers((current) => [...current, external]);
+    } else if (type === "family_cook") {
+      memberKey = householdMembers.find((item) => !item.isPrimary)?.clientKey ?? memberKey;
     }
-    return { kind: "once_scheduled", timezone, scheduledAt };
+    const cook: CookingPersonDraft = { clientKey: `cook_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, memberClientKey: memberKey, relationshipType: type, phone: "", preferredLanguage: "Hinglish", consentConfirmed: type === "primary_user", visits: [defaultVisit()] };
+    setTarla((current) => ({ ...current, cookingPeople: [...current.cookingPeople, cook] }));
   }
-  const frequency = input.timingMode;
-  return {
-    kind: "recurring",
-    timezone,
-    recurrence: {
-      frequency,
-      time: input.time,
-      daysOfWeek:
-        frequency === "selected_days" || frequency === "weekly"
-          ? input.daysOfWeek
-          : undefined,
-      dayOfMonth: frequency === "monthly" ? input.dayOfMonth : undefined,
-    },
-  };
-}
 
-function routineInputFromStored(routine: {
-  timing?:
-    | { kind: "once_now"; timezone: string }
-    | { kind: "once_scheduled"; timezone: string; scheduledAt: number }
-    | {
-        kind: "recurring";
-        timezone: string;
-        recurrence: {
-          frequency: "daily" | "selected_days" | "weekly" | "monthly";
-          time: string;
-          daysOfWeek?: number[];
-          dayOfMonth?: number;
-        };
-      };
-}) {
-  const stored = routine.timing;
-  if (!stored) return {};
-  if (stored.kind === "once_now") {
-    return { timingMode: "once_now" as const };
+  function removeCookingPerson(cook: CookingPersonDraft) {
+    const member = members.find((item) => item.clientKey === cook.memberClientKey);
+    setTarla((current) => ({ ...current, cookingPeople: current.cookingPeople.filter((item) => item.clientKey !== cook.clientKey) }));
+    if (member?.memberKind === "external" && !mitraPeople.some((person) => person.caretakerMemberClientKey === member.clientKey)) removeMember(member);
   }
-  if (stored.kind === "once_scheduled") {
-    const date = new Date(stored.scheduledAt);
-    return {
-      timingMode: "once_scheduled" as const,
-      date: dateInput(date),
-      time: timeInput(date),
-    };
+}
+
+function Panel({ eyebrow, title, supporting, children }: { eyebrow: string; title: string; supporting?: string; children: React.ReactNode }) {
+  return <section className={styles.panel}><p className={styles.eyebrow}>{eyebrow}</p><h1>{title}</h1>{supporting && <p className={styles.supporting}>{supporting}</p>}{children}</section>;
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  const labelId = useId();
+  const labelledChildren = Children.map(children, (child) => {
+    if (
+      !isValidElement(child) ||
+      typeof child.type !== "string" ||
+      !["input", "select", "textarea"].includes(child.type)
+    ) {
+      return child;
+    }
+    return cloneElement(
+      child as React.ReactElement<Record<string, unknown>>,
+      { "aria-labelledby": labelId },
+    );
+  });
+  return <div className={styles.field}><span id={labelId}>{label}{hint && <small>{hint}</small>}</span>{labelledChildren}</div>;
+}
+
+function Actions({ back, busy }: { back: () => void; busy?: boolean }) { return <div className={styles.actions}><button type="button" className={styles.backButton} onClick={back} disabled={busy}>Back</button><NextButton busy={busy}>Continue</NextButton></div>; }
+function NextButton({ busy, children }: { busy?: boolean; children: React.ReactNode }) { return <button className={styles.primaryButton} disabled={busy}>{busy ? "Saving…" : children}</button>; }
+function FormError({ error }: { error: string }) { return error ? <p className={styles.error} role="alert">{error}</p> : null; }
+function Suggestion({ children }: { children: React.ReactNode }) { return <div className={styles.suggestion}><span>Tarla suggests</span><p>{children}</p><small>Optional — you confirm what is saved.</small></div>; }
+
+function MemberEditor({ member, onChange, onRemove }: { member: HouseholdMemberDraft; onChange: (member: HouseholdMemberDraft) => void; onRemove?: () => void }) {
+  return <article className={styles.memberCard}><header><div><strong>{member.isPrimary ? "You" : member.name || "New household member"}</strong><span>{member.isPrimary ? "Primary household member" : "Shared Aevia household context"}</span></div>{onRemove && <button type="button" onClick={onRemove}>Remove</button>}</header><div className={styles.twoColumns}><Field label="Name"><input required disabled={member.isPrimary} value={member.name} onChange={(e) => onChange({ ...member, name: e.target.value })} placeholder="Name" /></Field><Field label="Relationship"><input required disabled={member.isPrimary} list="relationships" value={member.relationship} onChange={(e) => onChange({ ...member, relationship: e.target.value })} placeholder="Choose or type" /><datalist id="relationships">{RELATIONSHIPS.map((item) => <option value={item} key={item} />)}</datalist></Field></div><div className={styles.threeColumns}><Field label="Life stage"><select disabled={member.isPrimary} value={member.lifeStage} onChange={(e) => onChange({ ...member, lifeStage: e.target.value as HouseholdMemberDraft["lifeStage"] })}><option value="adult">Adult</option><option value="child">Child</option><option value="senior">Senior</option></select></Field><Field label="What do you call them?" hint="Optional until needed"><input disabled={member.isPrimary} value={member.preferredSalutation} onChange={(e) => onChange({ ...member, preferredSalutation: e.target.value })} placeholder="Maa, Dad, Dadi…" /></Field><Field label="Preferred language"><select value={member.preferredLanguage} onChange={(e) => onChange({ ...member, preferredLanguage: e.target.value as AeviaLanguage })}><option>English</option><option>Hindi</option><option>Hinglish</option></select></Field></div></article>;
+}
+
+function ChoiceCard({ selected, title, name, body, onSelect }: { selected: boolean; title: string; name: string; body: string; onSelect: () => void }) { return <button type="button" aria-pressed={selected} onClick={onSelect}><span>{title}</span><strong>{name}</strong><p>{body}</p><em>{selected ? "Selected" : "Choose"}</em></button>; }
+
+function PhoneField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const parts = splitPhone(value);
+  return <fieldset className={styles.phoneField}><legend>{label}</legend><div><select aria-label={`${label} country code`} value={parts.countryCode} onChange={(e) => onChange(`${e.target.value}${parts.localNumber}`)}><option value="+91">India +91</option><option value="+1">US/Canada +1</option><option value="+44">UK +44</option><option value="+61">Australia +61</option><option value="+65">Singapore +65</option><option value="+971">UAE +971</option></select><input aria-label={`${label} number`} inputMode="tel" value={parts.localNumber} onChange={(e) => onChange(`${parts.countryCode}${e.target.value.replace(/\D/g, "")}`)} placeholder="WhatsApp number" /></div></fieldset>;
+}
+
+function Time12Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const match = value.match(/^(\d{1,2}):(\d{2})\s(AM|PM)$/) ?? ["", "6", "00", "PM"];
+  return <fieldset className={styles.timeField}><legend>{label}</legend><div><select aria-label={`${label} hour`} value={match[1]} onChange={(e) => onChange(`${e.target.value}:${match[2]} ${match[3]}`)}>{Array.from({ length: 12 }, (_, index) => index + 1).map((hour) => <option key={hour}>{hour}</option>)}</select><span>:</span><select aria-label={`${label} minutes`} value={match[2]} onChange={(e) => onChange(`${match[1]}:${e.target.value} ${match[3]}`)}>{["00", "15", "30", "45"].map((minute) => <option key={minute}>{minute}</option>)}</select><select aria-label={`${label} AM or PM`} value={match[3]} onChange={(e) => onChange(`${match[1]}:${match[2]} ${e.target.value}`)}><option>AM</option><option>PM</option></select></div></fieldset>;
+}
+
+function RoutineEditor({ routine, index, member, path, caretaker, onChange, onRemove }: { routine: MitraRoutineDraft; index: number; member: HouseholdMemberDraft; path: CommunicationPath; caretaker?: HouseholdMemberDraft; onChange: (routine: MitraRoutineDraft) => void; onRemove: () => void }) {
+  const recipient = path === "caretaker" ? caretaker : member;
+  const preview = composeMitraMessage({ context: { agent: "mitra", audience: path === "caretaker" ? "caretaker" : "senior", surface: "whatsapp", moment: "reminder" }, recipientSalutation: recipient?.preferredSalutation || recipient?.name || "Hello", seniorSalutation: member.preferredSalutation || member.name, label: routine.label || (routine.type === "Medication" ? "medicine" : "routine"), type: routine.type, language: recipient?.preferredLanguage ?? member.preferredLanguage });
+  return <article className={styles.routineCard}><header><span>Routine {index + 1}</span><button type="button" onClick={onRemove}>Remove</button></header><Field label="Type"><Pills values={["Medication", "Walk / activity", "Appointment / checkup", "Custom"]} selected={[routine.type]} single onToggle={(value) => onChange({ ...routine, type: value as MitraRoutineDraft["type"] })} /></Field><Field label={routine.type === "Medication" ? "Family-friendly medicine reference" : "Natural label"}><input required value={routine.label} onChange={(e) => onChange({ ...routine, label: e.target.value })} placeholder={routine.type === "Medication" ? "e.g. BP wali dawai" : "e.g. evening walk"} />{routine.type === "Medication" && <small>Use only the familiar household reference. Exact medicine storage is not offered in this beta setup.</small>}</Field><Field label="Schedule"><Pills values={["once_now", "once_scheduled", "daily", "selected_days", "weekly", "monthly"]} labels={["Now", "Once later", "Every day", "Selected days", "Weekly", "Monthly"]} selected={[routine.timingMode]} single onToggle={(value) => onChange({ ...routine, timingMode: value as MitraRoutineDraft["timingMode"] })} /></Field>{routine.timingMode === "once_scheduled" && <Field label="Date"><input type="date" value={routine.date} onChange={(e) => onChange({ ...routine, date: e.target.value })} /></Field>}{routine.timingMode !== "once_now" && <Time12Field label="Time" value={routine.time12} onChange={(value) => onChange({ ...routine, time12: value })} />}{(routine.timingMode === "selected_days" || routine.timingMode === "weekly") && <DayPicker selected={routine.daysOfWeek} single={routine.timingMode === "weekly"} onChange={(days) => onChange({ ...routine, daysOfWeek: days })} />}{routine.timingMode === "monthly" && <Field label="Day of month"><input type="number" min={1} max={28} value={routine.dayOfMonth} onChange={(e) => onChange({ ...routine, dayOfMonth: Number(e.target.value) })} /></Field>}<details><summary>Add notes or context <small>Optional</small></summary><textarea rows={3} value={routine.notes} onChange={(e) => onChange({ ...routine, notes: e.target.value })} placeholder="e.g. Usually walks downstairs in the society." /></details><div className={styles.preview}><span>Message preview</span><p>{preview}</p></div></article>;
+}
+
+function FoodRuleEditor({ rule, onChange, onRemove }: { rule: FoodRuleDraft; onChange: (rule: FoodRuleDraft) => void; onRemove: () => void }) { return <article className={styles.ruleCard}><header><strong>{rule.description || "New food rule"}</strong><button type="button" onClick={onRemove}>Remove</button></header><DayPicker selected={rule.daysOfWeek} onChange={(days) => onChange({ ...rule, daysOfWeek: days })} /><Field label="Rule"><input value={rule.description} onChange={(e) => onChange({ ...rule, description: e.target.value })} placeholder="e.g. Vegetarian or no onion / garlic" /></Field><label className={styles.checkLine}><input type="checkbox" checked={rule.temporary} onChange={(e) => onChange({ ...rule, temporary: e.target.checked })} /><span>This is temporary</span></label>{rule.temporary && <Field label="End date"><input type="date" value={rule.expiresOn ?? ""} onChange={(e) => onChange({ ...rule, expiresOn: e.target.value })} /></Field>}</article>; }
+
+function NutritionEditor({ member, value, onChange }: { member: HouseholdMemberDraft; value: NutritionPersonDraft; onChange: (value: NutritionPersonDraft) => void }) { return <details className={styles.nutritionCard} open><summary><span><strong>{member.name}</strong><small>{value.enabled ? "Nutrition goal" : "Balanced"}</small></span></summary><label className={styles.checkLine}><input type="checkbox" checked={value.enabled} onChange={(e) => onChange({ ...value, enabled: e.target.checked })} /><span>Use a nutrition goal for {member.name}</span></label>{value.enabled && <><div className={styles.threeColumns}><Field label="Age"><input type="number" min={18} max={120} value={value.age ?? ""} onChange={(e) => onChange({ ...value, age: Number(e.target.value) || undefined })} /></Field><Field label="Sex used by estimate"><select value={value.sex ?? ""} onChange={(e) => onChange({ ...value, sex: e.target.value as "male" | "female" })}><option value="">Choose</option><option value="female">Female</option><option value="male">Male</option></select></Field><Field label="Activity"><select value={value.activityLevel ?? ""} onChange={(e) => onChange({ ...value, activityLevel: e.target.value as NutritionPersonDraft["activityLevel"] })}><option value="">Choose</option><option value="sedentary">Sedentary</option><option value="lightly_active">Lightly active</option><option value="moderately_active">Moderately active</option><option value="very_active">Very active</option><option value="extra_active">Extra active</option></select></Field></div><div className={styles.threeColumns}><Field label="Height (cm)"><input type="number" min={100} max={250} value={value.heightCm ?? ""} onChange={(e) => onChange({ ...value, heightCm: Number(e.target.value) || undefined })} /></Field><Field label="Weight (kg)"><input type="number" min={25} max={300} value={value.weightKg ?? ""} onChange={(e) => onChange({ ...value, weightKg: Number(e.target.value) || undefined })} /></Field><Field label="Goal"><select value={value.goal} onChange={(e) => onChange({ ...value, goal: e.target.value as NutritionPersonDraft["goal"] })}><option value="maintain">Maintain</option><option value="moderate_deficit">Moderate deficit</option><option value="stronger_deficit">Stronger deficit</option><option value="high_protein">High protein</option><option value="custom">Custom</option></select></Field></div>{value.goal === "custom" && <div className={styles.twoColumns}><Field label="Daily calorie estimate"><input type="number" min={800} max={6000} value={value.customCalorieTargetKcal ?? ""} onChange={(e) => onChange({ ...value, customCalorieTargetKcal: Number(e.target.value) || undefined })} /></Field><Field label="Daily protein estimate (g)"><input type="number" min={1} max={400} value={value.customProteinTargetG ?? ""} onChange={(e) => onChange({ ...value, customProteinTargetG: Number(e.target.value) || undefined })} /></Field></div>}</>}</details>; }
+
+function CookEditor({ cook, index, members, onMemberChange, onChange, onRemove }: { cook: CookingPersonDraft; index: number; members: HouseholdMemberDraft[]; onMemberChange: (member: HouseholdMemberDraft) => void; onChange: (cook: CookingPersonDraft) => void; onRemove: () => void }) { const member = memberByKey(members, cook.memberClientKey); const canChoose = cook.relationshipType === "family_cook" || cook.relationshipType === "primary_user"; return <article className={styles.cookCard}><header><div><strong>Cooking person {index + 1}</strong><span>{cookRoleLabel(cook.relationshipType)}</span></div><button type="button" onClick={onRemove}>Remove</button></header>{canChoose ? <Field label={cook.relationshipType === "primary_user" ? "Cooking person" : "Choose household member"}><select value={cook.memberClientKey} disabled={cook.relationshipType === "primary_user"} onChange={(e) => onChange({ ...cook, memberClientKey: e.target.value })}>{members.filter((item) => item.memberKind === "household").map((item) => <option key={item.clientKey} value={item.clientKey}>{item.name}</option>)}</select></Field> : <div className={styles.twoColumns}><Field label="Name"><input value={member.name} onChange={(e) => onMemberChange({ ...member, name: e.target.value, preferredSalutation: e.target.value })} placeholder="Name" /></Field><Field label="How should Tarla address them?"><input value={member.preferredSalutation} onChange={(e) => onMemberChange({ ...member, preferredSalutation: e.target.value })} placeholder="e.g. Sunita didi" /></Field></div>}<div className={styles.twoColumns}><PhoneField label="WhatsApp" value={cook.phone} onChange={(phone) => onChange({ ...cook, phone })} /><Field label="Preferred language"><select value={cook.preferredLanguage} onChange={(e) => onChange({ ...cook, preferredLanguage: e.target.value as AeviaLanguage })}><option>English</option><option>Hindi</option><option>Hinglish</option></select></Field></div>{cook.visits.map((visit, visitIndex) => <section className={styles.visitCard} key={visit.clientKey}><header><strong>{visit.label}</strong>{cook.visits.length > 1 && <button type="button" onClick={() => onChange({ ...cook, visits: cook.visits.filter((item) => item.clientKey !== visit.clientKey) })}>Remove visit</button>}</header><Field label="Visit label"><input value={visit.label} onChange={(e) => onChange({ ...cook, visits: cook.visits.map((item) => item.clientKey === visit.clientKey ? { ...item, label: e.target.value } : item) })} /></Field><DayPicker selected={visit.daysOfWeek} onChange={(days) => onChange({ ...cook, visits: cook.visits.map((item) => item.clientKey === visit.clientKey ? { ...item, daysOfWeek: days } : item) })} /><Time12Field label={`Visit ${visitIndex + 1} time`} value={visit.time12} onChange={(time12) => onChange({ ...cook, visits: cook.visits.map((item) => item.clientKey === visit.clientKey ? { ...item, time12 } : item) })} /></section>)}<button className={styles.textButton} type="button" onClick={() => onChange({ ...cook, visits: [...cook.visits, defaultVisit("Evening visit", "6:00 PM")] })}>+ Add another visit</button>{cook.relationshipType !== "primary_user" && <label className={styles.checkLine}><input type="checkbox" checked={cook.consentConfirmed} onChange={(e) => onChange({ ...cook, consentConfirmed: e.target.checked })} /><span>They have agreed to receive Tarla’s kitchen messages.</span></label>}<div className={styles.preview}><span>Introduction preview</span><p>{composeCookIntroduction({ cookName: member.preferredSalutation || member.name || "there", language: cook.preferredLanguage, relationshipType: cook.relationshipType })}</p></div></article>; }
+
+function TokenField({ label, value, onChange, placeholder }: { label: string; value: string[]; onChange: (value: string[]) => void; placeholder: string }) { return <Field label={label}><input value={value.join(", ")} onChange={(e) => onChange(listFromText(e.target.value))} placeholder={placeholder} />{value.length > 0 && <span className={styles.tokenRow}>{value.map((item) => <em key={item}>{item}</em>)}</span>}</Field>; }
+function DayPicker({ selected, onChange, single = false }: { selected: number[]; onChange: (days: number[]) => void; single?: boolean }) { return <fieldset className={styles.dayPicker}><legend>Days</legend><div>{DAY_CHOICES.map(([label, value]) => <button type="button" key={value} aria-pressed={selected.includes(value)} onClick={() => onChange(single ? [value] : toggleNumber(selected, value))}>{label}</button>)}</div></fieldset>; }
+function Pills({ values, labels, selected, onToggle, single = false }: { values: readonly string[]; labels?: readonly string[]; selected: string[]; onToggle: (value: string) => void; single?: boolean }) { return <div className={styles.pills}>{values.map((value, index) => <button type="button" key={value} aria-pressed={selected.includes(value)} onClick={() => onToggle(value)}>{labels?.[index] ?? value}{!single && selected.includes(value) ? " ✓" : ""}</button>)}</div>; }
+function ReviewSection({ title, edit, children }: { title: string; edit: () => void; children: React.ReactNode }) { return <section className={styles.reviewSection}><header><h2>{title}</h2><button type="button" onClick={edit}>Edit</button></header>{children}</section>; }
+
+function initialState(existing: ExistingSession | null) {
+  const identity = { name: existing?.profile.name ?? "", email: existing?.profile.email ?? "", householdName: existing?.household.name ?? "", timezone: existing?.household.timezone ?? (typeof window === "undefined" ? "Asia/Kolkata" : Intl.DateTimeFormat().resolvedOptions().timeZone), accepted: Boolean(existing) };
+  if (!existing) return { step: initialOnboardingStep({ hasExistingSession: false, hasSpecialistSetup: false }) as Step, identity, sessionIds: undefined, choice: "both" as AgentChoice, members: [defaultHouseholdMember({ clientKey: "primary", relationship: "Self", isPrimary: true })], mitraPeople: [], tarla: defaultTarlaSetup(), anythingElse: "" };
+  const storedMembers: HouseholdMemberDraft[] = existing.setup.members.map((member) => ({ clientKey: String(member._id), memberId: String(member._id), name: member.name, relationship: member.relationship ?? (member._id === existing.member._id ? "Self" : member.role), lifeStage: storedLifeStage(member), preferredSalutation: member.preferredSalutation ?? (member._id === existing.member._id ? member.name : ""), preferredLanguage: supportedLanguage(member.languagePreference), memberKind: member.memberKind ?? (/external|cook|cooking/i.test(member.role) ? "external" : "household"), isPrimary: member._id === existing.member._id }));
+  for (const entry of existing.setup.mitraPeople) {
+    const saved = storedMembers.find((member) => member.memberId === String(entry.member._id));
+    if (saved && !saved.preferredSalutation) {
+      saved.preferredSalutation = entry.parent.salutation ?? entry.member.name;
+    }
   }
-  return {
-    timingMode: stored.recurrence.frequency,
-    time: stored.recurrence.time,
-    daysOfWeek: stored.recurrence.daysOfWeek ?? [1],
-    dayOfMonth: stored.recurrence.dayOfMonth ?? 1,
-  };
-}
-
-function normalizedRoutineType(value: string): MitraRoutineType {
-  if (
-    value === "Medication" ||
-    value === "Walk / activity" ||
-    value === "Appointment / checkup" ||
-    value === "Custom"
-  ) {
-    return value;
+  const mitraPeople: MitraPersonDraft[] = existing.setup.mitraPeople.map((entry) => ({ memberClientKey: String(entry.member._id), parentId: String(entry.parent._id), communicationPath: entry.parent.coordinationMode ?? "senior_directly", caretakerMemberClientKey: entry.caretakerMember ? String(entry.caretakerMember._id) : undefined, directPhone: entry.directEndpoint?.address ?? "", caretakerPhone: entry.caretakerEndpoint?.address ?? "", consentConfirmed: entry.readiness === "ready", routines: entry.routines.map(storedRoutine) }));
+  const tarla = defaultTarlaSetup();
+  if (existing.setup.tarla) {
+    tarla.eaterMemberClientKeys = existing.setup.tarla.eaterProfiles.map((item) => String(item.member._id));
+    const firstProfile = existing.setup.tarla.eaterProfiles[0]?.profile;
+    tarla.dietaryType = firstProfile?.dietaryType ?? "vegetarian";
+    tarla.cuisines = listFromText(existing.setup.tarla.cuisines);
+    tarla.favouriteFoods = firstProfile?.favouriteFoods ?? [];
+    tarla.dislikedFoods = firstProfile?.dislikedFoods ?? [];
+    tarla.allergies = firstProfile?.allergies ?? [];
+    tarla.hardRestrictions = firstProfile?.avoidedFoods ?? [];
+    tarla.foodContext = existing.setup.tarla.foodContext;
+    tarla.rules = existing.setup.tarla.dietaryRules.map((rule) => ({ clientKey: String(rule._id), ruleId: String(rule._id), daysOfWeek: rule.daysOfWeek ?? [], description: rule.description, temporary: rule.expiresAt !== undefined, expiresOn: rule.expiresAt ? new Date(rule.expiresAt).toISOString().slice(0, 10) : undefined }));
+    tarla.nutritionMode = existing.setup.tarla.eaterProfiles.some((item) => item.profile.nutritionRequested) ? "nutrition_goal" : "balanced";
+    tarla.nutritionPeople = existing.setup.tarla.eaterProfiles.map(({ member, profile }) => ({ memberClientKey: String(member._id), enabled: profile.nutritionRequested, age: member.age, sex: member.sex === "male" || member.sex === "female" ? member.sex : undefined, heightCm: member.heightCm, weightKg: member.weightKg, activityLevel: profile.activityLevel, goal: profile.planningGoal && profile.planningGoal !== "balanced" ? profile.planningGoal : storedGoal(profile.nutritionGoal), customCalorieTargetKcal: profile.planningGoal === "custom" ? profile.calorieTargetKcal : undefined, customProteinTargetG: profile.proteinTargetG }));
+    tarla.cookingPeople = existing.setup.tarla.cookingPeople.filter((item) => item.member && item.endpoint).map((item) => ({ clientKey: String(item.cookState._id), cookStateId: String(item.cookState._id), memberClientKey: String(item.member!._id), relationshipType: item.cookState.relationshipType ?? storedCookRole(item.member!, existing.member._id), phone: item.endpoint!.address, preferredLanguage: supportedLanguage(item.endpoint!.preferredLanguage), consentConfirmed: item.endpoint!.consentStatus === "granted", visits: item.visits.map((visit) => ({ clientKey: String(visit._id), label: visit.label, daysOfWeek: visit.daysOfWeek, time12: to12Hour(visit.arrivalTime), mealSlots: visit.mealSlots })) }));
+    tarla.firstPlanDate = existing.setup.tarla.latestDayPlan?.targetDate ?? tarla.firstPlanDate;
   }
-  return "Custom";
+  const requestedEdit =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get("edit");
+  const requestedStep: Step | undefined =
+    requestedEdit === "household"
+      ? "household"
+      : requestedEdit === "mitra"
+        ? "mitraWho"
+        : requestedEdit === "tarla"
+          ? "tarlaEaters"
+          : undefined;
+  return { step: requestedStep ?? initialOnboardingStep({ hasExistingSession: true, hasSpecialistSetup: existing.setup.hasSpecialistSetup }) as Step, identity, sessionIds: { householdId: existing.household._id, memberId: existing.member._id }, choice: existing.setup.agentChoice as AgentChoice, members: storedMembers, mitraPeople, tarla, anythingElse: existing.setup.sharedContext };
 }
-
-function dateInput(date: Date) {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-function timeInput(date: Date) {
-  return [
-    String(date.getHours()).padStart(2, "0"),
-    String(date.getMinutes()).padStart(2, "0"),
-  ].join(":");
-}
-
-function legacyRelationship(value: string): "Mother" | "Father" | "Other" {
-  if (/papa|dad|father|dada|dadu|nana|nanu/i.test(value)) return "Father";
-  if (/mummy|maa|mom|mother|dadi|nani/i.test(value)) return "Mother";
-  return "Other";
-}
-
-function seniorRole(value: string) {
-  return /dada|dadu|dadi|nana|nanu|nani|grand/i.test(value)
-    ? "grandparent"
-    : "parent";
-}
-
-function cookingTone(role: CookingRole) {
-  if (role === "hired") return "short, warm, practical hired-cook instructions";
-  if (role === "family") return "collaborative family-member kitchen language";
-  if (role === "self") return "planning and recipe guidance for the primary user";
-  return "short, practical instructions for the configured cooking person";
-}
-
-function cookingMemberRole(role: CookingRole) {
-  if (role === "hired") return "cook";
-  if (role === "family") return "family cook";
-  return "cooking person";
-}
-
-function storedCookingRole(
-  role: string | undefined,
-  isPrimaryUser: boolean,
-): CookingRole {
-  if (isPrimaryUser) return "self";
-  if (role === "cook") return "hired";
-  if (role === "family cook") return "family";
-  return "different";
-}
-
-function splitStoredFoodContext(value: string) {
-  const known = ["low oil", "low spice", "avoid deep fried"];
-  const parts = value
-    .split(". ")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  const preferencePart = parts.find((part) =>
-    known.some((preference) => part.toLocaleLowerCase().includes(preference)),
-  );
-  const preferences = known.filter((preference) =>
-    preferencePart?.toLocaleLowerCase().includes(preference),
-  );
-  return {
-    preferences,
-    freeText: parts.filter((part) => part !== preferencePart).join(". "),
-  };
-}
-
-function listFromText(value: string) {
-  return value.split(",").map((item) => item.trim()).filter(Boolean);
-}
-
-function toggleText(values: string[], value: string) {
-  return values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value];
-}
-
-function toggleNumber(values: number[], value: number) {
-  return values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value];
-}
-
-function localDate(daysFromNow: number) {
-  const date = new Date(Date.now() + daysFromNow * 24 * 60 * 60 * 1000);
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return year + "-" + month + "-" + day;
-}
-
-function timingLabel(value: RoutineTimingMode) {
-  return {
-    once_now: "now",
-    once_scheduled: "once later",
-    daily: "every day",
-    selected_days: "selected days",
-    weekly: "weekly",
-    monthly: "monthly",
-  }[value];
-}
-
-function round(value: number) {
-  return Math.round(value);
-}
-
-function signed(value: number | undefined) {
-  if (value === undefined) return "no variance";
-  const rounded = Math.round(value);
-  return rounded > 0 ? "+" + rounded : String(rounded);
-}
-
-function messageFrom(reason: unknown, fallback: string) {
-  return reason instanceof Error && reason.message ? reason.message : fallback;
-}
+function stageLabel(step: Step) { const labels: Record<Step, string> = { identity: "About you", household: "Household", choice: "Choose help", mitraWho: "Mitra · people", mitraRoutines: "Mitra · routines", tarlaEaters: "Tarla · people", tarlaFood: "Tarla · food", tarlaRules: "Tarla · rules", tarlaCooks: "Tarla · cooking", anythingElse: "Context", review: "Review", plan: "First plan" }; return labels[step]; }
+function updateMemberState(setter: React.Dispatch<React.SetStateAction<HouseholdMemberDraft[]>>, member: HouseholdMemberDraft) { setter((current) => current.map((item) => item.clientKey === member.clientKey ? member : item)); }
+function memberByKey(members: HouseholdMemberDraft[], key: string) { const member = members.find((item) => item.clientKey === key); if (!member) throw new Error("Household member not found"); return member; }
+function validPhoneDraft(value: string) { try { const split = splitPhone(value); normalizePhone(split.countryCode, split.localNumber); return true; } catch { return false; } }
+function defaultFoodRule(): FoodRuleDraft { return { clientKey: `rule_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, daysOfWeek: [], description: "", temporary: false }; }
+function defaultNutrition(memberClientKey: string): NutritionPersonDraft { return { memberClientKey, enabled: false, goal: "maintain" }; }
+function ensureNutritionPeople(items: NutritionPersonDraft[], key: string) { return items.some((item) => item.memberClientKey === key) ? items : [...items, defaultNutrition(key)]; }
+function upsertNutrition(items: NutritionPersonDraft[], value: NutritionPersonDraft) { return items.some((item) => item.memberClientKey === value.memberClientKey) ? items.map((item) => item.memberClientKey === value.memberClientKey ? value : item) : [...items, value]; }
+function defaultVisit(label = "Daily visit", time12 = "8:00 AM") { return { clientKey: `visit_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, label, daysOfWeek: [...ALL_DAYS], time12, mealSlots: ["breakfast", "lunch", "snack", "dinner"] }; }
+function listFromText(value: string) { return [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))]; }
+function toggleText(values: string[], value: string) { return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]; }
+function toggleNumber(values: number[], value: number) { return values.includes(value) ? values.filter((item) => item !== value) : [...values, value].sort(); }
+function pathLabel(value: CommunicationPath) { return value === "senior_directly" ? "Them directly" : value === "caretaker" ? "Caretaker / family member" : "Them and a caretaker / family member"; }
+function cookRoleLabel(value: CookingPersonDraft["relationshipType"]) { return value === "hired_cook" ? "Hired cook" : value === "family_cook" ? "Family member" : value === "primary_user" ? "You" : "Other cooking person"; }
+function dayNames(days: number[]) { return days.map((day) => DAY_CHOICES.find(([, value]) => value === day)?.[0]).filter(Boolean).join(" + ") || "Choose days"; }
+function routineSchedule(routine: MitraRoutineDraft) { if (routine.timingMode === "once_now") return "Now"; if (routine.timingMode === "once_scheduled") return `${routine.date} · ${routine.time12}`; if (routine.timingMode === "daily") return `Daily · ${routine.time12}`; if (routine.timingMode === "monthly") return `Monthly on day ${routine.dayOfMonth} · ${routine.time12}`; return `${dayNames(routine.daysOfWeek)} · ${routine.time12}`; }
+function storedRoutine(routine: ExistingSession["setup"]["mitraPeople"][number]["routines"][number]): MitraRoutineDraft { const timing = routine.timing; let mode: MitraRoutineDraft["timingMode"] = "daily"; let date = new Date(Date.now() + 86400000).toISOString().slice(0, 10); let time12 = "6:00 PM"; let days: number[] = [1, 2, 3, 4, 5]; let dayOfMonth = 1; if (timing?.kind === "once_now") mode = "once_now"; if (timing?.kind === "once_scheduled") { mode = "once_scheduled"; const value = new Date(timing.scheduledAt); date = value.toISOString().slice(0, 10); time12 = value.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }); } if (timing?.kind === "recurring") { mode = timing.recurrence.frequency; time12 = to12Hour(timing.recurrence.time); days = timing.recurrence.daysOfWeek ?? days; dayOfMonth = timing.recurrence.dayOfMonth ?? 1; } return { clientKey: String(routine._id), routineId: String(routine._id), type: routine.type === "Medication" || routine.type === "Walk / activity" || routine.type === "Appointment / checkup" ? routine.type : "Custom", label: routine.label ?? routine.prompt, timingMode: mode, date, time12, daysOfWeek: days, dayOfMonth, notes: routine.notes ?? "" }; }
+function storedLifeStage(member: ExistingSession["setup"]["members"][number]): HouseholdMemberDraft["lifeStage"] { if (member.lifeStage) return member.lifeStage; if (member.role.toLowerCase().includes("child")) return "child"; if (/senior|mother|father|grand/i.test(member.role)) return "senior"; return "adult"; }
+function storedGoal(goal: string | undefined): NutritionPersonDraft["goal"] { if (goal === "deficit_10") return "moderate_deficit"; if (goal === "deficit_20") return "stronger_deficit"; if (goal === "custom") return "custom"; return "maintain"; }
+function nutritionGoalLabel(goal: NutritionPersonDraft["goal"]) { return goal === "maintain" ? "Maintain" : goal === "moderate_deficit" ? "Moderate deficit" : goal === "stronger_deficit" ? "Stronger deficit" : goal === "high_protein" ? "High protein" : "Custom"; }
+function storedCookRole(member: ExistingSession["setup"]["members"][number], primaryId: string): CookingPersonDraft["relationshipType"] { if (String(member._id) === String(primaryId)) return "primary_user"; if (member.memberKind === "household" || (!member.memberKind && !/cook|cooking/i.test(member.role))) return "family_cook"; return "hired_cook"; }
+function supportedLanguage(value: string | undefined): AeviaLanguage { return value === "Hindi" || value === "Hinglish" ? value : "English"; }
+function memberHasNutrition(items: Array<{ memberId: string; targets: { caloriesKcal?: number; proteinG?: number } }>, memberId: string) { const item = items.find((entry) => String(entry.memberId) === String(memberId)); return Boolean(item?.targets.caloriesKcal || item?.targets.proteinG); }
+function capitalize(value: string) { return value.charAt(0).toUpperCase() + value.slice(1).replaceAll("_", " "); }
+function messageFrom(reason: unknown, fallback: string) { return reason instanceof Error ? reason.message : fallback; }

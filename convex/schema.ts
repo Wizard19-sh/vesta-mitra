@@ -54,6 +54,15 @@ export default defineSchema({
     householdId: v.id("households"),
     name: v.string(),
     role: v.string(),
+    relationship: v.optional(v.string()),
+    lifeStage: v.optional(
+      v.union(v.literal("adult"), v.literal("child"), v.literal("senior")),
+    ),
+    preferredSalutation: v.optional(v.string()),
+    memberKind: v.optional(
+      v.union(v.literal("household"), v.literal("external")),
+    ),
+    active: v.optional(v.boolean()),
     age: v.optional(v.number()),
     sex: v.optional(v.string()),
     heightCm: v.optional(v.number()),
@@ -212,6 +221,7 @@ export default defineSchema({
     favouriteFoods: v.array(v.string()),
     mealsAtHome: v.array(v.string()),
     servingEquivalent: v.number(),
+    includedInPlanning: v.optional(v.boolean()),
     foodContext: v.optional(v.string()),
     cookNotes: v.optional(v.string()),
     nutritionRequested: v.boolean(),
@@ -223,6 +233,16 @@ export default defineSchema({
         v.literal("maintenance"),
         v.literal("deficit_10"),
         v.literal("deficit_20"),
+        v.literal("custom"),
+      ),
+    ),
+    planningGoal: v.optional(
+      v.union(
+        v.literal("balanced"),
+        v.literal("maintain"),
+        v.literal("moderate_deficit"),
+        v.literal("stronger_deficit"),
+        v.literal("high_protein"),
         v.literal("custom"),
       ),
     ),
@@ -246,6 +266,7 @@ export default defineSchema({
       v.literal("ingredient_excluded_days"),
       v.literal("ingredient_frequency_limit"),
       v.literal("avoid_recipe_repeat"),
+      v.literal("custom_days"),
     ),
     daysOfWeek: v.optional(v.array(v.number())),
     ingredientKey: v.optional(v.string()),
@@ -254,6 +275,7 @@ export default defineSchema({
     windowDays: v.optional(v.number()),
     description: v.string(),
     active: v.boolean(),
+    expiresAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -267,6 +289,15 @@ export default defineSchema({
     usualArrivalTime: v.optional(v.string()),
     cookingConstraints: v.optional(v.string()),
     communicationTone: v.optional(v.string()),
+    relationshipType: v.optional(
+      v.union(
+        v.literal("hired_cook"),
+        v.literal("family_cook"),
+        v.literal("primary_user"),
+        v.literal("other"),
+      ),
+    ),
+    active: v.optional(v.boolean()),
     visitFrequency: v.optional(
       v.union(
         v.literal("once_daily"),
@@ -750,6 +781,14 @@ export default defineSchema({
     ),
     primaryIntentOther: v.optional(v.string()),
     context: v.optional(v.string()),
+    coordinationMode: v.optional(
+      v.union(
+        v.literal("senior_directly"),
+        v.literal("caretaker"),
+        v.literal("both"),
+      ),
+    ),
+    caretakerMemberId: v.optional(v.id("members")),
   })
     .index("by_owner", ["ownerKey"])
     .index("by_household", ["householdId"])
@@ -761,6 +800,11 @@ export default defineSchema({
     householdId: v.optional(v.id("households")),
     memberId: v.optional(v.id("members")),
     communicationEndpointId: v.optional(v.id("communicationEndpoints")),
+    recipientMemberId: v.optional(v.id("members")),
+    recipientAudience: v.optional(
+      v.union(v.literal("senior"), v.literal("caretaker")),
+    ),
+    notes: v.optional(v.string()),
     type: v.union(
       v.literal("Medication"),
       v.literal("Exercise"),

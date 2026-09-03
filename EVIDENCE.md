@@ -108,10 +108,11 @@ The same piece of evidence cannot raise two rows. `Primary scoring row` is the o
 | `EVD-011` | M5 local consumer surface, beta consent, dashboard, and household-scoped run-view implementation | Management UI | Real output on a real surface; Observability | N — production build and HTTP proof only; browser activation and reviewer proof remain incomplete | Local M5 build; `npm run verify:m5`; routes `/`, `/onboarding`, `/dashboard`, `/admin/runs` |
 | `EVD-012` | Manual M5 Both onboarding flow completed after the missing Convex functions were synchronized | Management UI | Evals and iteration | N — functional product evidence only; visual/product acceptance remains failed | Manual local acceptance record below; `scripts/verify-m5-route.mjs`; `scripts/verify-m5.mjs` |
 | `EVD-013` | M0 onboarding continuity and unavailable-browser-storage handling verified in a real local browser | Management UI | Evals and iteration | N — local stability evidence only; no rubric-level upgrade claimed | `npm run verify:m0`; `npm run verify:m0:browser`; `artifacts/m0/identity-to-choice.png`; `artifacts/m0/storage-unavailable.png` |
+| `EVD-014` | M1 shared-household and specialist setup verified in a real local browser | Management UI | Handoffs and memory; Evals and iteration | N — local product-foundation evidence only; no real household task or rubric-level upgrade claimed | `npm run verify:m1`; `npm run verify:m1:browser`; `artifacts/m1/flexible-household.png`; `artifacts/m1/shared-member-review.png`; `artifacts/m1/per-person-and-kitchen-portions.png`; `artifacts/m1/returning-edit-review.png`; `artifacts/m1/mobile-onboarding-390.png` |
 
 Evidence used for a primary row must not also be submitted to raise a Revenue or Virality row. A separate artifact, cohort, or measurement must support any bonus claim.
 
-**Next available evidence ID: `EVD-014`.** Add the record when the next qualifying run or artifact is accepted; do not pre-allocate a passing result.
+**Next available evidence ID: `EVD-015`.** Add the record when the next qualifying run or artifact is accepted; do not pre-allocate a passing result.
 
 ### M5 evidence status
 
@@ -581,3 +582,21 @@ Use one record per artifact or proof:
 - Shared-runtime regressions after synchronization: W1 passed; W2 passed its scheduler flow and Mitra 7-case eval set; W3 passed its Tarla 10-case eval set; W3.1 passed; W4 passed **12/12**. All used synthetic/development paths during this closure run.
 - No real WhatsApp message was sent. No Convex production deployment, web deployment, commit, or push was performed.
 - The broader approved onboarding/dashboard visual redesign remains pending implementation; this closure did not start M1A or implement additional product requirements.
+
+### 2026-09-03 — M1 shared household and specialist setup
+
+- Status: **implemented and verified locally**. This is setup and product-foundation evidence, not proof of a real household task or a production launch.
+- Shared household: one extended `members` record is reused by Mitra and Tarla. The browser journey created six varied household members and selected the same saved person for both specialists.
+- Branching setup: Mitra-only, Tarla-only, and Both paths are covered. The Both browser path completed identity, household, Mitra, Tarla, review, first-plan approval, dashboard, reload, and focused returning-user edits without recreating the household.
+- Mitra setup: supports direct, caretaker/family, and both coordination paths; explicit salutation and supported language; multiple independently scheduled routines; optional notes; and 12-hour customer-facing time. Only the familiar medicine reference is collected. Exact medication storage remains unavailable.
+- Tarla setup: supports multiple shared eaters, separate hard restrictions and preferences, multiple day rules with optional expiry, balanced or supported adult nutrition-goal planning, and multiple cooking people/visits with relationship-aware copy.
+- Portions: the first-plan UI shows understandable per-person household measures and a separate cumulative kitchen quantity. The deterministic M1 checks verify that displayed person amounts reconcile with displayed kitchen totals and that “serving equivalent” is not customer-facing.
+- Edit safety: returning-user editing preserves saved record IDs and unrelated setup. The browser test edited one household member, one Mitra routine, food context, and a day rule, then confirmed an unrelated routine remained present after save and reload.
+- Content review: owner-approved **Hello Aevia** primary CTA and **Meet Aevia — your personal household assistant.** supporting copy are preserved. A Content Manager pass removed unsupported or overly technical customer wording and retained self-report honesty.
+- Automated verification: `npm run verify:m1` passed **31/31**; `npm run verify:m1:browser` passed **2/2**; `npm run verify:m0` passed **15/15**; `npm run verify:m0:browser` passed **3/3**; `npm run verify:m5` passed **17/17**; and `npm run verify:m5:route` passed **3/3**.
+- Shared-runtime regression: W1 passed; W2 passed autonomous scheduling, its seven-case Mitra set, and its M1.1 regression; W3 passed its ten-case Tarla set; W3.1 passed its scheduled full-day checks; W4 passed **12/12**. These used development/synthetic transport only.
+- Quality checks: `npx tsc --noEmit` passed; `npm run build` passed; `npm run lint` passed with zero errors and four existing warnings in generated Convex files.
+- Safe artifacts: `artifacts/m0/identity-to-household.png`, `artifacts/m1/flexible-household.png`, `artifacts/m1/shared-member-review.png`, `artifacts/m1/per-person-and-kitchen-portions.png`, `artifacts/m1/returning-edit-review.png`, and `artifacts/m1/mobile-onboarding-390.png`. They contain synthetic household data only.
+- Development synchronization: `npx convex dev --once` synchronized the additive M1 schema/functions to Convex development `grand-goshawk-952` so browser acceptance could exercise persisted setup. No Convex production deployment or web deployment occurred.
+- Current execution limits: a saved `both` Mitra relationship keeps both recipient links, while the current routine execution still sends each routine to one configured recipient; generic free-text day rules are stored but are not interpreted as arbitrary meal-planning logic; and the first-plan activation path uses the first configured cooking person. These are later execution concerns, not hidden M1 claims.
+- No real WhatsApp message was sent. No production deployment or Git push occurred.

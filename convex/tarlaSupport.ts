@@ -79,10 +79,15 @@ export async function loadPlanningContext(
       value: preference.value,
     }));
   const plannerRules: PlannerRule[] = rules
-    .filter((rule) => rule.active)
+    .filter(
+      (rule) =>
+        rule.active &&
+        rule.ruleType !== "custom_days" &&
+        (rule.expiresAt === undefined || rule.expiresAt > now),
+    )
     .map((rule) => ({
       memberId: rule.memberId ? String(rule.memberId) : undefined,
-      ruleType: rule.ruleType,
+      ruleType: rule.ruleType as PlannerRule["ruleType"],
       daysOfWeek: rule.daysOfWeek,
       ingredientKey: rule.ingredientKey,
       mealSlot: rule.mealSlot,

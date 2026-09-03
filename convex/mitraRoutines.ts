@@ -88,6 +88,10 @@ export const createScheduledRoutine = mutation({
     ownerKey: v.string(),
     householdId: v.id("households"),
     memberId: v.id("members"),
+    recipientMemberId: v.optional(v.id("members")),
+    recipientAudience: v.optional(
+      v.union(v.literal("senior"), v.literal("caretaker")),
+    ),
     parentId: v.id("parents"),
     communicationEndpointId: v.id("communicationEndpoints"),
     type: routineType,
@@ -96,6 +100,7 @@ export const createScheduledRoutine = mutation({
     responseWindowMs: v.optional(v.number()),
     customMessage: v.optional(v.string()),
     confirmingReactions: v.optional(v.array(v.string())),
+    notes: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -136,11 +141,13 @@ export const createScheduledRoutine = mutation({
       throw new Error("Parent is not ready for Mitra routines");
     }
 
+    const recipientMemberId = args.recipientMemberId ?? args.memberId;
+    await requireMember(ctx, recipientMemberId, args.householdId);
     const endpoint = await ctx.db.get(args.communicationEndpointId);
     if (
       !endpoint ||
       endpoint.householdId !== args.householdId ||
-      endpoint.memberId !== args.memberId ||
+      endpoint.memberId !== recipientMemberId ||
       !endpoint.active ||
       endpoint.consentStatus !== "granted"
     ) {
@@ -176,6 +183,8 @@ export const createScheduledRoutine = mutation({
       householdId: args.householdId,
       memberId: args.memberId,
       communicationEndpointId: args.communicationEndpointId,
+      recipientMemberId,
+      recipientAudience: args.recipientAudience ?? "senior",
       type: args.type,
       topics: [args.type],
       customTopic: args.type === "Custom" ? label : undefined,
@@ -187,6 +196,7 @@ export const createScheduledRoutine = mutation({
       timing: normalizedTiming,
       responseWindowMs,
       confirmingReactions: reactions,
+      notes: optionalText(args.notes, "Routine notes", 1_000),
       nextOccurrenceAt,
       createdAt: now,
       updatedAt: now,
@@ -210,6 +220,12 @@ export const updateScheduledRoutine = mutation({
     label: v.string(),
     timing,
     customMessage: v.optional(v.string()),
+    communicationEndpointId: v.optional(v.id("communicationEndpoints")),
+    recipientMemberId: v.optional(v.id("members")),
+    recipientAudience: v.optional(
+      v.union(v.literal("senior"), v.literal("caretaker")),
+    ),
+    notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const routine = await ctx.db.get(args.routineId);
@@ -229,6 +245,15 @@ export const updateScheduledRoutine = mutation({
       JSON.stringify(routine.timing) !== JSON.stringify(normalizedTiming);
     const label = requiredText(args.label, "Routine label", 160);
     const customMessage = optionalText(args.customMessage, "Custom message", 500);
+    const endpointId = args.communicationEndpointId ?? routine.communicationEndpointId;
+    const recipientMemberId = args.recipientMemberId ?? routine.recipientMemberId ?? routine.memberId;
+    if (!endpointId || !recipientMemberId) {
+      throw new Error("Routine recipient was not found");
+    }
+    const endpoint = await ctx.db.get(endpointId);
+    if (!endpoint || endpoint.memberId !== recipientMemberId || endpoint.householdId !== household._id) {
+      throw new Error("Routine recipient endpoint was not found");
+    }
     const now = Date.now();
 
     if (!timingChanged) {
@@ -238,6 +263,10 @@ export const updateScheduledRoutine = mutation({
         customTopic: args.type === "Custom" ? label : undefined,
         prompt: customMessage ?? label,
         label,
+        communicationEndpointId: endpointId,
+        recipientMemberId,
+        recipientAudience: args.recipientAudience ?? routine.recipientAudience ?? "senior",
+        notes: optionalText(args.notes, "Routine notes", 1_000),
         updatedAt: now,
       });
       return {
@@ -267,6 +296,10 @@ export const updateScheduledRoutine = mutation({
       schedule: legacyScheduleFromTiming(normalizedTiming, nextOccurrenceAt),
       prompt: customMessage ?? label,
       label,
+      communicationEndpointId: endpointId,
+      recipientMemberId,
+      recipientAudience: args.recipientAudience ?? routine.recipientAudience ?? "senior",
+      notes: optionalText(args.notes, "Routine notes", 1_000),
       timing: normalizedTiming,
       nextOccurrenceAt,
       scheduledJobId: String(scheduledJobId),

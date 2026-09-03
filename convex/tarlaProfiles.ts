@@ -37,12 +37,20 @@ const ruleType = v.union(
   v.literal("ingredient_excluded_days"),
   v.literal("ingredient_frequency_limit"),
   v.literal("avoid_recipe_repeat"),
+  v.literal("custom_days"),
 );
 
 const visitFrequency = v.union(
   v.literal("once_daily"),
   v.literal("twice_daily"),
   v.literal("custom"),
+);
+
+const cookingRelationship = v.union(
+  v.literal("hired_cook"),
+  v.literal("family_cook"),
+  v.literal("primary_user"),
+  v.literal("other"),
 );
 
 export const setHouseholdMealContext = mutation({
@@ -97,6 +105,7 @@ export const upsertMemberProfile = mutation({
     servingEquivalent: v.optional(v.number()),
     foodContext: v.optional(v.string()),
     cookNotes: v.optional(v.string()),
+    includedInPlanning: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await requireHousehold(ctx, args.householdId, args.ownerKey);
@@ -126,6 +135,7 @@ export const upsertMemberProfile = mutation({
         dietaryType: args.dietaryType,
         ...lists,
         servingEquivalent: args.servingEquivalent ?? existing.servingEquivalent,
+        includedInPlanning: args.includedInPlanning ?? true,
         ...(args.foodContext === undefined
           ? {}
           : { foodContext: optionalText(args.foodContext, "Food context", 2_000) }),
@@ -142,6 +152,7 @@ export const upsertMemberProfile = mutation({
       dietaryType: args.dietaryType,
       ...lists,
       servingEquivalent: args.servingEquivalent ?? 1,
+      includedInPlanning: args.includedInPlanning ?? true,
       foodContext: optionalText(args.foodContext, "Food context", 2_000),
       cookNotes: optionalText(args.cookNotes, "Cook notes", 500),
       nutritionRequested: false,
@@ -255,6 +266,7 @@ export const addDietaryRule = mutation({
     maxOccurrences: v.optional(v.number()),
     windowDays: v.optional(v.number()),
     description: v.string(),
+    expiresAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     await requireHousehold(ctx, args.householdId, args.ownerKey);
@@ -264,7 +276,7 @@ export const addDietaryRule = mutation({
       throw new Error("Days of week must be integers from 0 to 6");
     }
     if (
-      ["vegetarian_days", "non_vegetarian_allowed_days", "ingredient_excluded_days"].includes(args.ruleType) &&
+      ["vegetarian_days", "non_vegetarian_allowed_days", "ingredient_excluded_days", "custom_days"].includes(args.ruleType) &&
       (!daysOfWeek || daysOfWeek.length === 0)
     ) {
       throw new Error("This dietary rule requires at least one day of week");
@@ -289,6 +301,12 @@ export const addDietaryRule = mutation({
       throw new Error("Recipe repeat rules require a positive day window");
     }
     const now = Date.now();
+    if (
+      args.expiresAt !== undefined &&
+      (!Number.isFinite(args.expiresAt) || args.expiresAt <= now)
+    ) {
+      throw new Error("Rule expiry must be in the future");
+    }
     return ctx.db.insert("tarlaDietaryRules", {
       householdId: args.householdId,
       memberId: args.memberId,
@@ -300,6 +318,7 @@ export const addDietaryRule = mutation({
       windowDays: args.windowDays,
       description: requiredText(args.description, "Rule description", 500),
       active: true,
+      expiresAt: args.expiresAt,
       createdAt: now,
       updatedAt: now,
     });
@@ -403,6 +422,7 @@ export const configureCook = mutation({
     usualArrivalTime: v.optional(v.string()),
     cookingConstraints: v.optional(v.string()),
     communicationTone: v.optional(v.string()),
+    relationshipType: v.optional(cookingRelationship),
     visitFrequency: v.optional(visitFrequency),
   },
   handler: async (ctx, args) => {
@@ -437,6 +457,8 @@ export const configureCook = mutation({
           ? existing?.communicationTone
           : optionalText(args.communicationTone, "Communication tone", 100),
       visitFrequency: args.visitFrequency ?? existing?.visitFrequency,
+      relationshipType: args.relationshipType ?? existing?.relationshipType,
+      active: true,
       updatedAt: now,
     };
     if (existing) {
@@ -762,8 +784,12 @@ export const getTarlaContext = query({
       preferences: preferences.filter(
         (item) => item.active && (item.expiresAt === undefined || item.expiresAt > now),
       ),
-      dietaryRules: rules.filter((item) => item.active),
-      cooks,
+      dietaryRules: rules.filter(
+        (item) =>
+          item.active &&
+          (item.expiresAt === undefined || item.expiresAt > now),
+      ),
+      cooks: cooks.filter((item) => item.active !== false),
       cookVisits: cookVisits.filter((visit) => visit.active),
       inventory,
       shopping,

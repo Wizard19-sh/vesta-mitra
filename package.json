@@ -16,6 +16,8 @@
     "verify:m0:browser": "playwright test tests/browser/m0-stability.spec.ts",
     "verify:m5": "node scripts/verify-m5.mjs",
     "verify:m5:route": "node scripts/verify-m5-route.mjs",
+    "verify:m1": "node scripts/verify-m1.mjs",
+    "verify:m1:browser": "playwright test tests/browser/m1-onboarding.spec.ts",
     "verify:w4:meta:prepare": "node scripts/verify-w4-meta-live.mjs prepare",
     "verify:w4:meta:retry": "node scripts/verify-w4-meta-live.mjs retry",
     "verify:w4:meta:inspect": "node scripts/verify-w4-meta-live.mjs inspect",

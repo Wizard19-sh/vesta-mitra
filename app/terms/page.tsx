@@ -9,7 +9,7 @@ export default function TermsPage() {
       <PolicyViewTracker type="terms" />
       <header className={styles.header}>
         <Link href="/" className={styles.brand}><span>A</span>Aevia</Link>
-        <Link href="/onboarding" className={styles.cta}>Meet Aevia</Link>
+        <Link href="/onboarding" className={styles.cta}>Hello Aevia</Link>
       </header>
       <article className={styles.document}>
         <p className={styles.kicker}>Terms of Use · {TERMS_VERSION}</p>
