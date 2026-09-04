@@ -128,7 +128,7 @@ export function composeDayCookInstruction(input: {
     ? input.fallbackNotes.map((note) => `Fallback: ${note}`)
     : [];
   return naturalizeCookMessage([
-    relationshipOpening(input, `${input.visitLabel} — ${input.targetDate}`),
+    relationshipOpening(input, `${input.visitLabel} — ${humanDate(input.targetDate)}`),
     ...mealLines,
     ...notes,
     ...(input.importantRestrictions.length
@@ -142,6 +142,28 @@ export function composeDayCookInstruction(input: {
       ? [`Revised because ${input.revisedBecause}.`]
       : []),
   ].join("\n"));
+}
+
+function humanDate(value: string) {
+  const matched = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!matched) return value;
+  const months = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
+  ];
+  const month = months[Number(matched[2]) - 1];
+  const day = Number(matched[3]);
+  return month && day > 0 ? `${day} ${month}` : value;
 }
 
 function householdQuantity(item: CalculatedPlanItem) {

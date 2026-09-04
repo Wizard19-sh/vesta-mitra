@@ -96,7 +96,7 @@ The same piece of evidence cannot raise two rows. `Primary scoring row` is the o
 | Evidence ID | Evidence | Primary scoring row | Related rows | Used for scoring? Y/N | Verification reference |
 | --- | --- | --- | --- | --- | --- |
 | `EVD-001` | Developer/test scheduled Mitra Meta WhatsApp round trip | Real output on a real surface | Observability; Cost and latency | Y — current L3 planning claim | W4 accepted development checkpoint; ignored live record; `scripts/verify-w4-meta-live.mjs` |
-| `EVD-002` | Developer/test scheduled Tarla Meta missing-ingredient loop and second real message | Real output on a real surface | Observability; Handoffs and memory; Cost and latency | Y — current L3 planning claim | W4 accepted development checkpoint; ignored live record; `scripts/verify-w4-meta-tarla-live.mjs` |
+| `EVD-002` | Historical developer/test scheduled Tarla Meta missing-ingredient loop and second real message | Real output on a real surface | Observability; Handoffs and memory; Cost and latency | Y — current L3 planning claim | Earlier W4 checkpoint; retained honestly. Preferred clean-copy proof is `EVD-016`. |
 | `EVD-003` | Separate W2 development run with ordered scheduler-to-interpretation trace | Observability | Evals and iteration | N — technical capability only; reviewer surface missing | Replayable `scripts/verify-w2.mjs` trace output |
 | `EVD-004` | Shared hub with Mitra/Tarla specialists and static open-task routing | Agent org structure | Handoffs and memory | N — does not meet supplied manager threshold | `ARCHITECTURE.md`; `convex/transportInbound.ts`; `convex/http.ts` |
 | `EVD-005` | Mitra W2 named 7-case set | Evals and iteration | Observability | Y — current L3 planning claim | `scripts/mitra-w2-eval-cases.mjs`; accepted 7/7 result |
@@ -110,10 +110,21 @@ The same piece of evidence cannot raise two rows. `Primary scoring row` is the o
 | `EVD-013` | M0 onboarding continuity and unavailable-browser-storage handling verified in a real local browser | Management UI | Evals and iteration | N — local stability evidence only; no rubric-level upgrade claimed | `npm run verify:m0`; `npm run verify:m0:browser`; `artifacts/m0/identity-to-choice.png`; `artifacts/m0/storage-unavailable.png` |
 | `EVD-014` | M1 shared-household and specialist setup verified in a real local browser | Management UI | Handoffs and memory; Evals and iteration | N — local product-foundation evidence only; no real household task or rubric-level upgrade claimed | `npm run verify:m1`; `npm run verify:m1:browser`; `artifacts/m1/flexible-household.png`; `artifacts/m1/shared-member-review.png`; `artifacts/m1/per-person-and-kitchen-portions.png`; `artifacts/m1/returning-edit-review.png`; `artifacts/m1/mobile-onboarding-390.png` |
 | `EVD-015` | M2 household execution, bounded exceptions, approvals, evidence linkage, and consumer/admin inspection verified with synthetic development records | Evals and iteration | Real output on a real surface; Observability; Handoffs and memory; Management UI | N — non-live development evidence only; the required real Mitra and Tarla WhatsApp runs have not been sent | `npm run verify:m2`; `npm run verify:m2:browser`; `artifacts/m2/needs-you-and-handled.png`; `artifacts/m2/mobile-execution-dashboard.png`; `artifacts/m2/run-trace-inspection.png` |
+| `EVD-016` | Preferred clean-copy Tarla Meta WhatsApp missing-ingredient loop: Priya received the plan, a real reply reported palak unavailable, Tarla substituted lunch and the revised instruction was delivered | Real output on a real surface | Observability; Handoffs and memory | Y — controlled developer/test surface; no level upgrade claimed | Convex development run `ba9fad2e-0996-46b1-a0e6-0eec8672d6ab`; evidence record `EVD-RUN-ba9fad2e-0996-46b1-a0e6-0eec8672d6ab`; `scripts/verify-w4-meta-tarla-live.mjs` |
 
 Evidence used for a primary row must not also be submitted to raise a Revenue or Virality row. A separate artifact, cohort, or measurement must support any bonus claim.
 
-**Next available evidence ID: `EVD-016`.** Add the record when the next qualifying run or artifact is accepted; do not pre-allocate a passing result.
+**Next available evidence ID: `EVD-017`.** Add the record when the next qualifying run or artifact is accepted; do not pre-allocate a passing result.
+
+### EVD-016 — preferred clean-copy Tarla real-output run
+
+- Surface and target: Meta WhatsApp Cloud API on Convex development; one configured developer/test recipient.
+- Initial plan: accepted at `2026-09-04T17:05:02.737Z` and provider-delivered at `2026-09-04T17:05:03.000Z`. The customer copy used only Priya, Sid, and Kayaan; it contained no `W4`, `test`, `fixture`, or `synthetic` wording.
+- Real inbound: the recipient replied `Palak Nahi hai` at `2026-09-04T18:07:23.000Z`. The signed webhook was received at `2026-09-04T18:07:23.985Z` and validated at `2026-09-04T18:07:23.989Z`; the raw text and provider message ID are retained in the run record.
+- Interpretation and result: `INGREDIENT_UNAVAILABLE_SUPPORTED_SUBSTITUTION`; lunch changed from Palak tofu, moong dal and cucumber salad to Soy chunk masala, bhindi and cucumber salad. Household totals changed from 3646.88 kcal / 272.38 g protein to 3333.09 kcal / 256.63 g protein. Palak was added to shopping-needed. No primary-user escalation was required.
+- Provider recovery: the first revised request failed with Meta token code `190`. After one manual development-token refresh, the guarded retry submitted the unchanged revised instruction at `2026-09-04T18:25:52.539Z`, Meta accepted it at `2026-09-04T18:25:53.631Z`, and Meta delivered it at `2026-09-04T18:25:54.000Z`.
+- Final stored state: `revised_waiting`, pending a real cook acknowledgement. No acknowledgement was fabricated. Manual intervention count: 1 (credential refresh and recorded retry); plan, quantities, restrictions, raw inbound handling, and substitution stayed autonomous.
+- Artifacts: no screenshot was captured; the evidence record is marked `MISSING` for a screenshot artifact. The inspectable artifacts are the Convex run, ordered trace, inbound signal, exception, three transport records, and evidence record named above.
 
 ### M5 evidence status
 

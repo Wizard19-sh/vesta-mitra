@@ -668,6 +668,143 @@ export const ingestCookSignal = mutation({
   },
 });
 
+export const retryFailedRevisedInstruction = mutation({
+  args: {
+    ownerKey: v.string(),
+    executionId: v.id("tarlaExecutions"),
+  },
+  handler: async (ctx, args) => {
+    const execution = await ctx.db.get(args.executionId);
+    if (!execution || execution.status !== "failed") {
+      throw new Error("Only a failed Tarla execution can be retried");
+    }
+    if (!execution.latestInstruction || !execution.dayPlanId) {
+      throw new Error("The failed execution has no revised instruction to retry");
+    }
+    const [run, endpoint, inboundSignals, messages] = await Promise.all([
+      ctx.db.get(execution.runId),
+      ctx.db.get(execution.communicationEndpointId),
+      ctx.db
+        .query("inboundSignals")
+        .withIndex("by_tarla_execution", (q) =>
+          q.eq("tarlaExecutionId", execution._id),
+        )
+        .collect(),
+      ctx.db
+        .query("transportMessages")
+        .withIndex("by_tarla_execution", (q) =>
+          q.eq("tarlaExecutionId", execution._id),
+        )
+        .collect(),
+    ]);
+    if (!run || !endpoint) throw new Error("Tarla retry context was not found");
+    const household = await ctx.db.get(endpoint.householdId);
+    if (!household || household.ownerKey !== args.ownerKey) {
+      throw new Error("Tarla execution not found for this household");
+    }
+    if (!inboundSignals.some((signal) => signal.matched)) {
+      throw new Error("A real matched cook reply is required before retrying");
+    }
+    const failedRevision = messages.find(
+      (message) =>
+        message.status === "failed" &&
+        message.purpose === "revised_day_cook_instruction",
+    );
+    if (!failedRevision) {
+      throw new Error("No failed revised instruction is available to retry");
+    }
+
+    const sent = await getMessageTransport(ctx).sendMessage({
+      recipient: {
+        memberId: String(endpoint.memberId),
+        endpointId: String(endpoint._id),
+        address: endpoint.address,
+      },
+      channel: endpoint.channel,
+      message: execution.latestInstruction,
+      metadata: {
+        householdId: String(household._id),
+        runId: String(run._id),
+        tarlaExecutionId: String(execution._id),
+        dayPlanId: String(execution.dayPlanId),
+        cookVisitId: execution.cookVisitId ? String(execution.cookVisitId) : undefined,
+        purpose: "revised_day_cook_instruction_retry",
+        recipientClass: execution.recipientClass ?? "hired_cook",
+      },
+    });
+    const now = Date.now();
+    const expectedResponseBy = now + 4 * 60 * 60 * 1_000;
+    await ctx.db.patch(execution._id, {
+      status: "revised_waiting",
+      revisedOutboundMessageId: sent.messageId,
+      expectedResponseBy,
+      userEscalationRequired: false,
+      updatedAt: now,
+    });
+    await ctx.db.patch(run._id, {
+      status: "waiting",
+      completedAt: undefined,
+      totalLatencyMs: undefined,
+      error: undefined,
+      outputSummary:
+        "Retrying the already-computed revised instruction after a provider authentication failure",
+      updatedAt: now,
+    });
+    let order = await nextStepOrder(ctx, run._id);
+    await addCompletedStep(
+      ctx,
+      run._id,
+      order++,
+      "retry_revised_instruction",
+      "Retry the unchanged revised instruction after provider authentication is restored",
+      "Provider-neutral transport recorded one revised instruction retry",
+      {
+        component: "transport",
+        tool: "whatsapp",
+        provider: sent.provider,
+        usageStatus: "not_applicable",
+        outcome: sent.providerStatus,
+      },
+    );
+    await addWaitingStep(
+      ctx,
+      run._id,
+      order,
+      "wait_for_cook_reply",
+      "Wait for acknowledgement of the retried revised instruction",
+      { component: "tarla", usageStatus: "not_applicable" },
+    );
+    await recordExecutionEvent(ctx, {
+      eventKey: `${execution._id}:revised_retry:${sent.messageId}`,
+      householdId: household._id,
+      runId: run._id,
+      taskType: run.taskType,
+      eventName: "message_scheduled",
+      agent: "tarla",
+      outcome: "requested",
+    });
+    const refreshedRun = await ctx.db.get(run._id);
+    if (refreshedRun) {
+      await ensureEvidenceRecord(ctx, {
+        run: refreshedRun,
+        surface: transportSurface(endpoint),
+        recipientClass: execution.recipientClass ?? "hired_cook",
+        outcome: "AUTONOMOUS_SUBSTITUTION_PENDING_ACKNOWLEDGEMENT",
+        primaryRubricClaim: "Real output on a real surface",
+      });
+    }
+    const timeoutJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
+      expectedResponseBy,
+      internal.tarlaRuntime.handleCookResponseTimeout,
+      { executionId: execution._id, expectedResponseBy },
+    );
+    await ctx.db.patch(execution._id, {
+      responseTimeoutJobId: String(timeoutJobId),
+    });
+    return { executionId: execution._id, retryMessageId: sent.messageId };
+  },
+});
+
 async function handleDayExecutionSignal(
   ctx: MutationCtx,
   args: {

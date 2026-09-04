@@ -62,7 +62,7 @@ async function prepare() {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: "W4 Primary",
+      name: "Sid",
       role: "primary user",
       age: 35,
       sex: "Male",
@@ -82,7 +82,7 @@ async function prepare() {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: "W4 Child",
+      name: "Kayaan",
       role: "child",
       age: 9,
       languagePreference: "English",
@@ -90,7 +90,7 @@ async function prepare() {
     mutate("vesta:addMember", {
       ownerKey,
       householdId,
-      name: "W4 Test Cook",
+      name: "Priya",
       role: "cook",
       languagePreference: "Hindi",
     }),
@@ -207,7 +207,7 @@ async function prepare() {
     frequency: "once_daily",
     visits: [
       {
-        label: "W4 test cook visit",
+        label: "Aaj ka meal plan",
         daysOfWeek: [arrival.dayOfWeek],
         arrivalTime: arrival.time,
         timezone,

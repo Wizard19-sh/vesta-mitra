@@ -387,6 +387,12 @@ Exact supplied L3 → L4 → L5 thresholds are now recorded in the control plane
 
 No current rubric claim was upgraded solely because the higher-level wording became available. Developer-recipient W4 evidence remains labeled `DEVELOPER TEST`.
 
+### W4 — Clean Tarla Meta evidence recovery
+
+On 2026-09-04, the controlled Tarla Meta loop was rerun with customer-facing fixture names Priya, Sid, and Kayaan. The delivered initial and revised WhatsApp copy contains no W4/test/fixture/synthetic language. A real `Palak Nahi hai` reply passed through the signed Meta webhook, raw inbound storage, supported substitution, nutrition recalculation, shopping-needed update, and revised-instruction composition.
+
+The first revised Meta dispatch failed because the development access token expired (`meta_190`). After a manual development-token refresh, one guarded retry resent the unchanged revised instruction through the existing Meta transport and Meta reported delivery. The run remains `revised_waiting` for a real cook acknowledgement; no acknowledgement was fabricated. Canonical evidence is `EVD-016` in `EVIDENCE.md`.
+
 ## Explicit remaining work
 
 ### NEXT — closed-beta product readiness
