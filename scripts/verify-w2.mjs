@@ -168,8 +168,8 @@ assert.deepEqual(
   scheduledOnceDetail.steps.map((step) => step.name),
   [
     "scheduler_trigger",
-    "retrieve_context",
     "resolve_recipient",
+    "retrieve_context",
     "create_routine_instance",
     "compose_message",
     "send_message",
@@ -210,8 +210,8 @@ assert.deepEqual(
   scheduledOnceDetail.steps.map((step) => step.name),
   [
     "scheduler_trigger",
-    "retrieve_context",
     "resolve_recipient",
+    "retrieve_context",
     "create_routine_instance",
     "compose_message",
     "send_message",

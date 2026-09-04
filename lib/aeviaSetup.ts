@@ -43,6 +43,7 @@ export type HouseholdMemberDraft = {
   lifeStage: LifeStage;
   preferredSalutation: string;
   preferredLanguage: AeviaLanguage;
+  whatsappNumber?: string;
   memberKind: "household" | "external";
   isPrimary: boolean;
 };
@@ -66,6 +67,7 @@ export type MitraRoutineDraft = {
   routineId?: string;
   type: "Medication" | "Walk / activity" | "Appointment / checkup" | "Custom";
   label: string;
+  exactMedicineName?: string;
   timingMode:
     | "once_now"
     | "once_scheduled"
@@ -144,6 +146,7 @@ export type CookingPersonDraft = {
 
 export type TarlaSetupDraft = {
   eaterMemberClientKeys: string[];
+  mealSlots: string[];
   dietaryType: "vegetarian" | "eggetarian" | "non_vegetarian";
   cuisines: string[];
   favouriteFoods: string[];
@@ -186,6 +189,7 @@ export function defaultHouseholdMember(
     lifeStage: "adult",
     preferredSalutation: "",
     preferredLanguage: "English",
+    whatsappNumber: "",
     memberKind: "household",
     isPrimary: false,
     ...overrides,
@@ -197,6 +201,7 @@ export function defaultRoutine(): MitraRoutineDraft {
     clientKey: createClientKey("routine"),
     type: "Walk / activity",
     label: "",
+    exactMedicineName: "",
     timingMode: "daily",
     date: localDate(1),
     time12: "6:00 PM",
@@ -209,6 +214,7 @@ export function defaultRoutine(): MitraRoutineDraft {
 export function defaultTarlaSetup(): TarlaSetupDraft {
   return {
     eaterMemberClientKeys: [],
+    mealSlots: ["breakfast", "lunch", "snack", "dinner"],
     dietaryType: "vegetarian",
     cuisines: [],
     favouriteFoods: [],
@@ -292,6 +298,16 @@ export function splitPhone(value: string) {
   const known = ["+91", "+1", "+44", "+61", "+65", "+971"];
   const countryCode = known.find((code) => clean.startsWith(code)) ?? "+91";
   return { countryCode, localNumber: clean.startsWith(countryCode) ? clean.slice(countryCode.length) : clean.replace(/^\+/, "") };
+}
+
+export function heightCmFromFeetInches(feet: number, inches: number) {
+  return Math.round((feet * 12 + inches) * 2.54 * 10) / 10;
+}
+
+export function heightFeetInchesFromCm(heightCm: number | undefined) {
+  if (!heightCm) return { feet: undefined, inches: undefined };
+  const totalInches = Math.round(heightCm / 2.54);
+  return { feet: Math.floor(totalInches / 12), inches: totalInches % 12 };
 }
 
 export function roleForMember(member: HouseholdMemberDraft) {

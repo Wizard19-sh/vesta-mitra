@@ -12,6 +12,7 @@ import {
 } from "../lib/aeviaSetup";
 import { firstOccurrenceAt, legacyScheduleFromTiming } from "../lib/mitraSchedule";
 import { estimateEnergy, type NutritionGoal } from "../lib/tarlaNutrition";
+import { resolveMemberSalutation } from "../lib/mitraSalutation";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -210,9 +211,8 @@ async function saveMitra(
           surface: "whatsapp",
           moment: "reminder",
         },
-        recipientSalutation:
-          recipient.preferredSalutation?.trim() || recipient.name,
-        seniorSalutation: member.preferredSalutation?.trim() || member.name,
+        recipientSalutation: resolveMemberSalutation({ preferredSalutation: recipient.preferredSalutation, displayName: recipient.name }),
+        seniorSalutation: resolveMemberSalutation({ preferredSalutation: member.preferredSalutation, displayName: member.name }),
         label: requiredText(routineInput.label, "Routine label", 160),
         type: routineInput.type,
         language: supportedLanguage(recipient.languagePreference),
@@ -301,14 +301,14 @@ async function saveTarla(
     }
     const existing = profiles.find((profile) => profile.memberId === memberId);
     const servingEquivalent = member.lifeStage === "child" ? 0.6 : 1;
-    const basePatch = {
+      const basePatch = {
       dietaryType: tarla.dietaryType,
       allergies: uniqueTextList(tarla.allergies),
       dislikedFoods: uniqueTextList(tarla.dislikedFoods),
       avoidedFoods: uniqueTextList(tarla.hardRestrictions),
       limitedFoods: [] as string[],
       favouriteFoods: uniqueTextList(tarla.favouriteFoods),
-      mealsAtHome: ["breakfast", "lunch", "snack", "dinner"],
+      mealsAtHome: uniqueTextList(tarla.mealSlots),
       servingEquivalent,
       includedInPlanning: true,
       foodContext: optionalText(
@@ -388,7 +388,7 @@ async function saveTarla(
     });
   }
 
-  await setHouseholdMealContext(ctx, household._id, now);
+  await setHouseholdMealContext(ctx, household._id, tarla.mealSlots, now);
   await replacePreference(ctx, { householdId: household._id, category: "tarla_onboarding", key: "cuisines", value: tarla.cuisines.join(", "), now });
   await replacePreference(ctx, { householdId: household._id, category: "tarla_onboarding", key: "favourite_foods", value: tarla.favouriteFoods.join(", "), now });
   await replacePreference(ctx, { householdId: household._id, category: "tarla_onboarding", key: "softer_preferences", value: tarla.softerPreferences.join(", "), now });
@@ -541,6 +541,10 @@ async function upsertRoutine(
     w2Enabled: true,
     label: args.input.label.trim(),
     notes: optionalText(args.input.notes, 1_000),
+    exactMedicineName:
+      args.input.type === "Medication"
+        ? optionalText(args.input.exactMedicineName, 160)
+        : undefined,
     timing: args.timing,
     responseWindowMs: 4 * 60 * 60 * 1_000,
     nextOccurrenceAt,
@@ -716,6 +720,7 @@ async function saveFoodRules(
 async function setHouseholdMealContext(
   ctx: MutationCtx,
   householdId: Id<"households">,
+  mealSlots: string[],
   now: number,
 ) {
   const existing = await ctx.db
@@ -723,13 +728,13 @@ async function setHouseholdMealContext(
     .withIndex("by_household", (q) => q.eq("householdId", householdId))
     .unique();
   const patch = {
-    mealsPreparedAtHome: ["breakfast", "lunch", "snack", "dinner"],
+    mealsPreparedAtHome: uniqueTextList(mealSlots),
     usualMealTimes: [
       { meal: "breakfast", time: "08:30" },
       { meal: "lunch", time: "13:00" },
       { meal: "snack", time: "16:30" },
       { meal: "dinner", time: "20:00" },
-    ],
+    ].filter((item) => mealSlots.includes(item.meal)),
     updatedAt: now,
   };
   if (existing) return ctx.db.patch(existing._id, patch);
@@ -893,6 +898,7 @@ function cleanMember(input: HouseholdMemberDraft) {
     lifeStage: input.lifeStage,
     preferredSalutation: optionalText(input.preferredSalutation, 80),
     languagePreference: input.preferredLanguage,
+    whatsappNumber: optionalPhone(input.whatsappNumber),
     memberKind: input.memberKind,
     active: true,
   };
@@ -914,12 +920,15 @@ function validateSetup(setup: AeviaSetupPayload) {
     throw new Error("Choose at least one person for Mitra");
   }
   for (const person of setup.mitraPeople) {
-    if (!person.routines.length || person.routines.length > 4) {
-      throw new Error("Add between one and four routines for each Mitra person");
+    if (!person.routines.length) {
+      throw new Error("Add at least one routine for each Mitra person");
     }
   }
   if (setup.agentChoice !== "mitra" && !setup.tarla.cookingPeople.length) {
     throw new Error("Add at least one person who prepares meals");
+  }
+  if (setup.agentChoice !== "mitra" && !setup.tarla.mealSlots.length) {
+    throw new Error("Choose at least one meal for Tarla");
   }
 }
 
@@ -941,6 +950,11 @@ function optionalText(value: string | undefined, maxLength: number) {
   if (!clean) return undefined;
   if (clean.length > maxLength) throw new Error("This detail is too long");
   return clean;
+}
+
+function optionalPhone(value: string | undefined) {
+  if (!value?.trim()) return undefined;
+  return validPhone(value);
 }
 
 function uniqueTextList(values: string[]) {

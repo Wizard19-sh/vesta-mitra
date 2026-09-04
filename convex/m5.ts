@@ -57,7 +57,8 @@ export const createOrUpdateIdentity = mutation({
   args: {
     ownerKey: v.string(),
     name: v.string(),
-    email: v.string(),
+    email: v.optional(v.string()),
+    mobilePhone: v.optional(v.string()),
     householdName: v.string(),
     timezone: v.string(),
     termsVersion: v.string(),
@@ -73,7 +74,8 @@ export const createOrUpdateIdentity = mutation({
       throw new Error("Device credential is invalid");
     }
     const name = requiredText(args.name, "Name", 120);
-    const email = validEmail(args.email);
+    const email = optionalEmail(args.email);
+    const mobilePhone = args.mobilePhone ? validPhone(args.mobilePhone) : undefined;
     const householdName = requiredText(
       args.householdName || `${name}'s household`,
       "Household name",
@@ -113,6 +115,7 @@ export const createOrUpdateIdentity = mutation({
           relationship: member.relationship ?? "Self",
           lifeStage: member.lifeStage ?? "adult",
           preferredSalutation: member.preferredSalutation ?? name,
+          whatsappNumber: mobilePhone ?? member.whatsappNumber,
           memberKind: member.memberKind ?? "household",
           active: true,
           updatedAt: now,
@@ -120,6 +123,7 @@ export const createOrUpdateIdentity = mutation({
         ctx.db.patch(existing._id, {
           name,
           email,
+          mobilePhone,
           termsVersion,
           privacyVersion,
           acceptedAt: now,
@@ -149,6 +153,7 @@ export const createOrUpdateIdentity = mutation({
       relationship: "Self",
       lifeStage: "adult",
       preferredSalutation: name,
+      whatsappNumber: mobilePhone,
       memberKind: "household",
       active: true,
       languagePreference: "English",
@@ -161,6 +166,7 @@ export const createOrUpdateIdentity = mutation({
       memberId,
       name,
       email,
+      mobilePhone,
       termsVersion,
       privacyVersion,
       acceptedAt: now,
@@ -270,6 +276,7 @@ export const getSession = query({
       memberId: member._id,
       name: member.name,
       email: "",
+      mobilePhone: member.whatsappNumber,
       termsVersion: "closed-beta",
       privacyVersion: "closed-beta",
       acceptedAt: household.createdAt,
@@ -344,6 +351,9 @@ export const getSession = query({
     const foodPreference = activePreferences.find(
       (item) => item.category === "tarla_onboarding" && item.key === "food_context",
     );
+    const softerPreference = activePreferences.find(
+      (item) => item.category === "tarla_onboarding" && item.key === "softer_preferences",
+    );
     const agentChoicePreference = activePreferences.find(
       (item) => item.category === "household_setup" && item.key === "specialists",
     );
@@ -392,6 +402,7 @@ export const getSession = query({
               ),
               cuisines: cuisinePreference?.value ?? "",
               foodContext: foodPreference?.value ?? "",
+              softerPreferences: softerPreference?.value ?? "",
               latestDayPlan: tarlaDayPlans[0] ?? null,
             }
           : null,
@@ -574,12 +585,21 @@ function requiredText(value: string, label: string, maxLength: number) {
   return clean;
 }
 
-function validEmail(value: string) {
-  const email = requiredText(value, "Email", 254).toLocaleLowerCase();
+function optionalEmail(value: string | undefined) {
+  const email = value?.trim().toLocaleLowerCase();
+  if (!email) return undefined;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("Enter a valid email address");
   }
   return email;
+}
+
+function validPhone(value: string) {
+  const clean = value.replace(/[\s()-]/g, "");
+  if (!/^\+[1-9]\d{7,14}$/.test(clean)) {
+    throw new Error("Enter a valid mobile number with its country code");
+  }
+  return clean;
 }
 
 function validTimezone(value: string) {

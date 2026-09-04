@@ -13,6 +13,7 @@
     "verify:w3.1": "node scripts/verify-w3-1.mjs",
     "verify:w4": "node scripts/verify-w4.mjs",
     "verify:beta-5": "node scripts/verify-beta-5.mjs",
+    "verify:final-flow": "node scripts/verify-final-flow.mjs",
     "verify:m0": "node scripts/verify-m0.mjs",
     "verify:m0:browser": "playwright test tests/browser/m0-stability.spec.ts",
     "verify:m5": "node scripts/verify-m5.mjs",

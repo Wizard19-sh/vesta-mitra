@@ -178,7 +178,7 @@ export const triggerRoutine = internalMutation({
     await addCompletedStep(
       ctx,
       runId,
-      2,
+      3,
       "retrieve_context",
       "Load household, parent, endpoint, readiness, and shared preferences",
       `Loaded ${activePreferences.length} relevant active preferences`,

@@ -33,7 +33,7 @@ export default function DashboardPage() {
   }
   if (credentialState.status === "unavailable") return <SessionUnavailable onRetry={retryCredential} />;
   if (!data) {
-    return <main className={styles.emptyPage}><span>A</span><h1>Your Aevia setup starts here.</h1><p>This browser does not have a closed-beta household yet.</p><Link href="/onboarding">Hello Aevia</Link></main>;
+    return <main className={styles.emptyPage}><AeviaLogo /><h1>Your Aevia setup starts here.</h1><p>This browser does not have a closed-beta household yet.</p><Link href="/onboarding">Hello Aevia</Link></main>;
   }
 
   const activeRoutines = [...data.routines]
