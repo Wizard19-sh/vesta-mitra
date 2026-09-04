@@ -172,6 +172,7 @@ function isWalkConfirmation(text: string) {
     /(ho gay[ai]|kar li|done|completed|did).*(walk|walking|exercise|activity)/i.test(
       text,
     ) ||
+    /^(haan|han|yes)[.! ]*$/i.test(text) ||
     /^(haan|han|yes)?[,.! ]*(ho gaya|ho gayi|kar li|done)[.! ]*$/i.test(text)
   );
 }

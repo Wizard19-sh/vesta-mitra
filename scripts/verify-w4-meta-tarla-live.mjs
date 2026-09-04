@@ -5,9 +5,9 @@ import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
 const environmentPath = fileURLToPath(new URL("../.env.local", import.meta.url));
-const statePath = fileURLToPath(
-  new URL("../.w4-meta-tarla-live-state.json", import.meta.url),
-);
+const statePath = process.env.W4_META_TARLA_STATE_PATH
+  ? fileURLToPath(new URL(`../${process.env.W4_META_TARLA_STATE_PATH}`, import.meta.url))
+  : fileURLToPath(new URL("../.w4-meta-tarla-live-state.json", import.meta.url));
 const localEnvironment = readEnvironmentFile(environmentPath);
 const deployment =
   process.env.CONVEX_DEPLOYMENT ?? localEnvironment.CONVEX_DEPLOYMENT;
@@ -52,7 +52,7 @@ async function prepare() {
 
   const fixtureKey = new Date().toISOString().replace(/[^0-9]/g, "");
   const ownerKey = `w4-meta-tarla-${fixtureKey}`;
-  const arrival = safeFutureLocalSchedule(4);
+  const arrival = safeFutureLocalSchedule(scheduleLeadMinutes());
   const householdId = await mutate("vesta:createHousehold", {
     ownerKey,
     name: "W4 Meta Tarla Developer Household",
@@ -465,6 +465,14 @@ function safeFutureLocalSchedule(minutes) {
     time: `${pad(parts.hour)}:${pad(parts.minute)}`,
     dayOfWeek: dayOfWeekForDate(targetDate),
   };
+}
+
+function scheduleLeadMinutes() {
+  const configured = Number(process.env.W4_META_TARLA_LEAD_MINUTES ?? 4);
+  if (!Number.isFinite(configured) || configured < 1 || configured > 10) {
+    throw new Error("W4_META_TARLA_LEAD_MINUTES must be between 1 and 10");
+  }
+  return configured;
 }
 
 function localParts(timestamp) {

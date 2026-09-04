@@ -5,9 +5,9 @@ import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 
 const environmentPath = fileURLToPath(new URL("../.env.local", import.meta.url));
-const statePath = fileURLToPath(
-  new URL("../.w4-meta-live-state.json", import.meta.url),
-);
+const statePath = process.env.W4_META_LIVE_STATE_PATH
+  ? fileURLToPath(new URL(`../${process.env.W4_META_LIVE_STATE_PATH}`, import.meta.url))
+  : fileURLToPath(new URL("../.w4-meta-live-state.json", import.meta.url));
 const localEnvironment = readEnvironmentFile(environmentPath);
 const deployment =
   process.env.CONVEX_DEPLOYMENT ?? localEnvironment.CONVEX_DEPLOYMENT;
@@ -56,7 +56,7 @@ async function prepare() {
   const fixtureKey = new Date().toISOString().replace(/[^0-9]/g, "");
   const ownerKey = `w4-meta-live-${fixtureKey}`;
   const timezone = "Asia/Kolkata";
-  const scheduledAt = Date.now() + 120_000;
+  const scheduledAt = Date.now() + scheduledDelayMs();
 
   const householdId = await mutate("vesta:createHousehold", {
     ownerKey,
@@ -220,7 +220,7 @@ async function retryTimedOutAttempt() {
   if (detail.inboundSignals.length) {
     throw new Error("The recorded attempt already has an inbound signal");
   }
-  const scheduledAt = Date.now() + 120_000;
+  const scheduledAt = Date.now() + scheduledDelayMs();
   const routine = await mutate("mitraRoutines:createScheduledRoutine", {
     ownerKey: state.ownerKey,
     householdId: state.householdId,
@@ -431,4 +431,12 @@ function readEnvironmentFile(path) {
     values[key] = value;
   }
   return values;
+}
+
+function scheduledDelayMs() {
+  const configured = Number(process.env.W4_META_SCHEDULE_DELAY_MS ?? 120_000);
+  if (!Number.isFinite(configured) || configured < 1_000 || configured > 10 * 60_000) {
+    throw new Error("W4_META_SCHEDULE_DELAY_MS must be between 1 second and 10 minutes");
+  }
+  return configured;
 }
