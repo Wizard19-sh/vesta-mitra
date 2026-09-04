@@ -29,6 +29,7 @@
 .field input,.field select,.field textarea,.phoneField select,.phoneField input,.timeField select,.routineCard details textarea{border-color:#e6e3db;background:#faf9f5}
 .primaryButton{background:#162d1f;box-shadow:0 8px 20px rgba(22,45,31,.16)}
 .primaryButton:hover{background:#092013}
+.planActions{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:20px}.changeBox>small{color:var(--muted);font-size:.72rem;line-height:1.5}
 .kitchenSummary{color:#1c1c17;border:1px solid #d2e8d5;background:#eef4e9}
 .kitchenSummary span{color:#424843}
 .restrictionBox{border-color:#ffdad6;background:#fff5f2}

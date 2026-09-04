@@ -116,9 +116,10 @@ function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; exist
   const [anythingElse, setAnythingElse] = useState(initial.anythingElse);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [planSetup, setPlanSetup] = useState<PlanSetup>();
+  const [planSetup, setPlanSetup] = useState<PlanSetup | undefined>(initial.planSetup);
   const [planChange, setPlanChange] = useState("");
-  const [primed, setPrimed] = useState(false);
+  const [showPlanChanges, setShowPlanChanges] = useState(false);
+  const [primed, setPrimed] = useState(initial.primed);
   const [copied, setCopied] = useState(false);
   const started = useRef(false);
   const track = useProductAnalytics();
@@ -323,6 +324,8 @@ function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; exist
         });
         setMembers((current) => current.map((item) => ({ ...item, memberId: String(savedMap.get(item.clientKey) ?? item.memberId ?? "") })));
         setStep("plan");
+      } else if (planSetup && existingSession?.setup.tarla?.latestDayPlan?.status === "awaiting_approval") {
+        setStep("plan");
       } else {
         router.push("/dashboard");
       }
@@ -340,6 +343,7 @@ function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; exist
       const result = await requestDayPlanChange({ ownerKey, dayPlanId: planSetup.dayPlanId, memberId: sessionIds.memberId, rawContent: planChange.trim() });
       setPlanSetup({ ...planSetup, dayPlanId: result.dayPlanId });
       setPlanChange("");
+      setShowPlanChanges(false);
     } catch (reason) { setError(messageFrom(reason, "Tarla couldn’t apply that change.")); }
     finally { setBusy(false); }
   }
@@ -548,9 +552,9 @@ function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; exist
         <Panel eyebrow="Phase 05 · First Plan Approval" title="Your first Tarla plan" supporting={`Review the household menu, portions, and kitchen summary before activation. ${tarla.firstPlanDate} · ${tarla.nutritionMode === "balanced" ? "Keep meals balanced" : "Nutrition goals where configured"}`}>
           {plan === undefined ? <div className={styles.loadingCard}>Building the first plan…</div> : <div className={styles.planStack}>{plan.meals.map((meal) => <article className={styles.mealPlan} key={meal.join._id}><header><span>{meal.join.mealSlot}</span><h2>{meal.mealPlan.selectedTemplateName}</h2></header>{meal.calculated.plan.items.map((item) => <div className={styles.portionBlock} key={item.recipeId}><h3>{item.recipeName}</h3><div>{item.memberPortions.map((portion) => <p key={portion.memberId}><strong>{portion.memberName}</strong><span>{formatHouseholdMeasure(personHouseholdMeasure(item.recipeId, portion.servingEquivalent))}</span>{memberHasNutrition(plan.dayPlan.memberDailyNutrition, portion.memberId) && <small>{Math.round(portion.nutrition.caloriesKcal)} kcal · {Math.round(portion.nutrition.proteinG)} g protein estimate</small>}</p>)}</div></div>)}</article>)}</div>}
           {plan && <section className={styles.kitchenSummary}><p>For the kitchen</p>{plan.meals.map((meal) => <div key={meal.join._id}><strong>{capitalize(meal.join.mealSlot)}</strong>{meal.calculated.plan.items.map((item) => <span key={item.recipeId}>{item.recipeName} · {formatHouseholdMeasure(cumulativeHouseholdMeasure(item.recipeId, item.memberPortions.map((portion) => portion.servingEquivalent)))}</span>)}</div>)}</section>}
-          <section className={styles.changeBox}><Field label="Want a change?" hint="Optional"><textarea rows={2} value={planChange} onChange={(e) => setPlanChange(e.target.value)} placeholder="Don't give paneer again this week." /></Field><button type="button" onClick={changePlan} disabled={busy || !planChange.trim()}>Change this plan</button></section>
+          {showPlanChanges && <section className={styles.changeBox}><Field label="What would you like to change?"><textarea rows={2} value={planChange} onChange={(e) => setPlanChange(e.target.value)} placeholder="Don't give paneer again this week." /></Field><button type="button" onClick={changePlan} disabled={busy || !planChange.trim()}>{busy ? "Saving change…" : "Update plan"}</button><small>Your household, members, and cooking setup will stay the same.</small></section>}
           {planSetup.relationshipType === "hired_cook" && <section className={styles.primingBox}><p>Introduce Tarla first</p><blockquote>{planSetup.primingMessage}</blockquote><div className={styles.inlineActions}><button type="button" onClick={copyIntro}>{copied ? "Copied" : "Copy message"}</button><a href={`https://wa.me/${planSetup.phone.replace(/\D/g, "")}?text=${encodeURIComponent(planSetup.primingMessage)}`} target="_blank" rel="noreferrer">Open WhatsApp</a></div><label className={styles.checkLine}><input type="checkbox" checked={primed} onChange={(e) => setPrimed(e.target.checked)} /><span>I&apos;ve introduced Tarla and they agreed to receive kitchen messages.</span></label><small>Opening WhatsApp does not send the message.</small></section>}
-          <FormError error={error} /><button type="button" className={styles.primaryButton} onClick={approvePlan} disabled={busy}>{busy ? "Approving…" : "Approve and activate"}</button>
+          <FormError error={error} /><div className={styles.planActions}><button type="button" className={styles.primaryButton} onClick={approvePlan} disabled={busy}>{busy ? "Approving…" : "Approve plan"}</button><button type="button" className={styles.backButton} onClick={() => setShowPlanChanges((visible) => !visible)} disabled={busy}>{showPlanChanges ? "Close changes" : "Make changes"}</button></div>
         </Panel>
       )}
     </main>
@@ -671,7 +675,7 @@ function ReviewSection({ title, edit, children }: { title: string; edit: () => v
 
 function initialState(existing: ExistingSession | null) {
   const identity = { name: existing?.profile.name ?? "", email: existing?.profile.email ?? "", householdName: existing?.household.name ?? "", timezone: existing?.household.timezone ?? (typeof window === "undefined" ? "Asia/Kolkata" : Intl.DateTimeFormat().resolvedOptions().timeZone), accepted: Boolean(existing) };
-  if (!existing) return { step: initialOnboardingStep({ hasExistingSession: false, hasSpecialistSetup: false }) as Step, identity, sessionIds: undefined, choice: "both" as AgentChoice, members: [defaultHouseholdMember({ clientKey: "primary", relationship: "Self", isPrimary: true })], mitraPeople: [], tarla: defaultTarlaSetup(), anythingElse: "" };
+  if (!existing) return { step: initialOnboardingStep({ hasExistingSession: false, hasSpecialistSetup: false }) as Step, identity, sessionIds: undefined, choice: "both" as AgentChoice, members: [defaultHouseholdMember({ clientKey: "primary", relationship: "Self", isPrimary: true })], mitraPeople: [], tarla: defaultTarlaSetup(), anythingElse: "", planSetup: undefined, primed: false };
   const storedMembers: HouseholdMemberDraft[] = existing.setup.members.map((member) => ({ clientKey: String(member._id), memberId: String(member._id), name: member.name, relationship: member.relationship ?? (member._id === existing.member._id ? "Self" : member.role), lifeStage: storedLifeStage(member), preferredSalutation: member.preferredSalutation ?? (member._id === existing.member._id ? member.name : ""), preferredLanguage: supportedLanguage(member.languagePreference), memberKind: member.memberKind ?? (/external|cook|cooking/i.test(member.role) ? "external" : "household"), isPrimary: member._id === existing.member._id }));
   for (const entry of existing.setup.mitraPeople) {
     const saved = storedMembers.find((member) => member.memberId === String(entry.member._id));
@@ -709,7 +713,19 @@ function initialState(existing: ExistingSession | null) {
         : requestedEdit === "tarla"
           ? "tarlaEaters"
           : undefined;
-  return { step: requestedStep ?? initialOnboardingStep({ hasExistingSession: true, hasSpecialistSetup: existing.setup.hasSpecialistSetup }) as Step, identity, sessionIds: { householdId: existing.household._id, memberId: existing.member._id }, choice: existing.setup.agentChoice as AgentChoice, members: storedMembers, mitraPeople, tarla, anythingElse: existing.setup.sharedContext };
+  const latestPlan = existing.setup.tarla?.latestDayPlan;
+  const firstCook = existing.setup.tarla?.cookingPeople.find((item) => item.member && item.endpoint);
+  const planSetup: PlanSetup | undefined = latestPlan?.status === "awaiting_approval" && firstCook?.member && firstCook.endpoint
+    ? {
+        dayPlanId: latestPlan._id,
+        cookStateId: firstCook.cookState._id,
+        endpointId: firstCook.endpoint._id,
+        primingMessage: firstCook.cookState.primingMessage ?? composeCookIntroduction({ cookName: firstCook.member.preferredSalutation || firstCook.member.name, language: supportedLanguage(firstCook.endpoint.preferredLanguage), relationshipType: firstCook.cookState.relationshipType ?? "hired_cook" }),
+        phone: firstCook.endpoint.address,
+        relationshipType: firstCook.cookState.relationshipType ?? "hired_cook",
+      }
+    : undefined;
+  return { step: requestedStep ?? (planSetup ? "plan" : initialOnboardingStep({ hasExistingSession: true, hasSpecialistSetup: existing.setup.hasSpecialistSetup }) as Step), identity, sessionIds: { householdId: existing.household._id, memberId: existing.member._id }, choice: existing.setup.agentChoice as AgentChoice, members: storedMembers, mitraPeople, tarla, anythingElse: existing.setup.sharedContext, planSetup, primed: firstCook?.cookState.readiness === "ready" };
 }
 function macroStep(step: Step) { if (step === "identity") return 0; if (step === "household") return 1; if (step === "choice") return 2; if (step === "review" || step === "plan") return 4; return 3; }
 function updateMemberState(setter: React.Dispatch<React.SetStateAction<HouseholdMemberDraft[]>>, member: HouseholdMemberDraft) { setter((current) => current.map((item) => item.clientKey === member.clientKey ? member : item)); }

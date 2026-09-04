@@ -341,8 +341,25 @@ export const approveDayPlan = mutation({
     cookStateId: v.optional(v.id("tarlaCookStates")),
     rawContent: v.string(),
     prepareOnly: v.optional(v.boolean()),
+    approvalSource: v.optional(
+      v.union(v.literal("household_user"), v.literal("owner_test_admin")),
+    ),
+    approvalActorLabel: v.optional(v.string()),
+    approvalNote: v.optional(v.string()),
+    adminKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const approvalSource = args.approvalSource ?? "household_user";
+    const isTestAdminApproval = approvalSource === "owner_test_admin";
+    if (isTestAdminApproval) {
+      const expectedAdminKey = process.env.BETA_ADMIN_KEY?.trim();
+      if (!expectedAdminKey || args.adminKey?.trim() !== expectedAdminKey) {
+        throw new Error("Test-admin plan approval is not configured or authorised");
+      }
+      if (!args.approvalNote?.trim()) {
+        throw new Error("Test-admin plan approval requires an audit note");
+      }
+    }
     const dayPlan = await requireOwnedDayPlan(ctx, args.dayPlanId, args.ownerKey);
     if (dayPlan.status !== "awaiting_approval") {
       throw new Error("Only a full-day plan awaiting approval can be approved");
@@ -366,12 +383,27 @@ export const approveDayPlan = mutation({
     const readyCookStates = cookStates.filter(
       (state) => state.active !== false && state.readiness === "ready",
     );
-    if (readyCookStates.length === 0) {
+    let eligibleCookStates = readyCookStates;
+    if (isTestAdminApproval) {
+      if (!args.cookStateId) {
+        throw new Error("Test-admin plan approval requires one selected cooking person");
+      }
+      const selectedCookState = cookStates.find(
+        (state) => state._id === args.cookStateId && state.active !== false,
+      );
+      if (!selectedCookState) throw new Error("The selected cooking person is not active");
+      const endpoint = await ctx.db.get(selectedCookState.communicationEndpointId);
+      if (!endpoint || !endpoint.active || endpoint.consentStatus !== "granted") {
+        throw new Error("The selected cooking person does not have an active, consented endpoint");
+      }
+      eligibleCookStates = [selectedCookState];
+    }
+    if (eligibleCookStates.length === 0) {
       throw new Error("At least one cooking person must be ready before scheduling instructions");
     }
     if (
       args.cookStateId &&
-      !readyCookStates.some((state) => state._id === args.cookStateId)
+      !eligibleCookStates.some((state) => state._id === args.cookStateId)
     ) {
       throw new Error("The selected cooking person is not ready");
     }
@@ -384,13 +416,24 @@ export const approveDayPlan = mutation({
       memberId: args.memberId,
       feedbackType: "approval",
       rawContent,
-      interpretation: "Household user approved this full-day plan version.",
+      interpretation: isTestAdminApproval
+        ? "Owner/test admin approved this existing plan only to unblock the Build Week live run; the household user did not click approval."
+        : "Household user approved this full-day plan version.",
+      approvalSource,
+      approvalActorLabel: isTestAdminApproval
+        ? requiredText(args.approvalActorLabel ?? "Owner / test admin", "Approval actor", 120)
+        : member.name,
+      approvalNote: isTestAdminApproval
+        ? requiredText(args.approvalNote ?? "", "Approval note", 500)
+        : "Approved from the generated-plan screen.",
       createdAt: Date.now(),
     });
     await completeLatestWaitingStep(
       ctx,
       run._id,
-      "Household user approved the full-day plan",
+      isTestAdminApproval
+        ? "Owner/test admin approved the existing plan for the Build Week live run; the household user did not click approval"
+        : "Household user approved the full-day plan",
     );
     let order = await nextStepOrder(ctx, run._id);
     await addCompletedStep(
@@ -399,14 +442,14 @@ export const approveDayPlan = mutation({
       order++,
       "receive_user_feedback",
       "Persist exact approval before scheduling cook work",
-      `Approved full-day plan version ${dayPlan.version}`,
+      `${isTestAdminApproval ? "Owner/test admin approved" : "Household user approved"} full-day plan version ${dayPlan.version}`,
     );
     const dayOfWeek = dayOfWeekForDate(dayPlan.targetDate);
     const applicableVisits = visits.filter(
       (visit) =>
         visit.active &&
         visit.daysOfWeek.includes(dayOfWeek) &&
-        readyCookStates.some((state) => state._id === visit.cookStateId),
+        eligibleCookStates.some((state) => state._id === visit.cookStateId),
     );
     if (applicableVisits.length === 0) {
       throw new Error("No active cook visit is configured for this day");
@@ -418,7 +461,7 @@ export const approveDayPlan = mutation({
         arrivalTime: visit.arrivalTime,
         mealSlots: visit.mealSlots,
         relationshipType:
-          readyCookStates.find((state) => state._id === visit.cookStateId)
+          eligibleCookStates.find((state) => state._id === visit.cookStateId)
             ?.relationshipType ?? "hired_cook",
       })),
     );
@@ -436,7 +479,7 @@ export const approveDayPlan = mutation({
         (candidate) => String(candidate._id) === allocation.visitId,
       );
       if (!visit) throw new Error("Allocated cooking visit was not found");
-      const cookState = readyCookStates.find(
+      const cookState = eligibleCookStates.find(
         (candidate) => candidate._id === visit.cookStateId,
       );
       if (!cookState) throw new Error("Allocated cooking person was not found");
@@ -543,6 +586,13 @@ export const approveDayPlan = mutation({
     await ctx.db.patch(dayPlan._id, {
       status: "scheduled",
       approvedAt: Date.now(),
+      approvalSource,
+      approvalActorLabel: isTestAdminApproval
+        ? requiredText(args.approvalActorLabel ?? "Owner / test admin", "Approval actor", 120)
+        : member.name,
+      approvalNote: isTestAdminApproval
+        ? requiredText(args.approvalNote ?? "", "Approval note", 500)
+        : "Approved from the generated-plan screen.",
       updatedAt: Date.now(),
     });
     await addCompletedStep(

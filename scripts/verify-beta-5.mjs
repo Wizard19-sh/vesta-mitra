@@ -46,6 +46,18 @@ assert.match(executor, /W4_META_TEST_RECIPIENT_E164: recipient\.e164/);
 assert.match(executor, /getBetaMitraRecipientContext/);
 assert.match(executor, /prepare_existing/);
 assert.match(executor, /verify-w4-meta-tarla-live\.mjs/);
+assert.match(executor, /W4_META_EXISTING_OWNER_KEY: recipient\.ownerKey/);
+assert.match(tarla, /prepareExistingPlan/);
+assert.match(tarla, /Selected recipient has no approved\/current Tarla plan/);
+const onboarding = readFileSync(new URL("../app/onboarding/page.tsx", import.meta.url), "utf8");
+assert.match(onboarding, /"Approve plan"/);
+assert.match(onboarding, /"Make changes"/);
+assert.match(onboarding, /latestPlan\?\.status === "awaiting_approval"/);
+assert.match(onboarding, /setShowPlanChanges/);
+const dayPlanning = readFileSync(new URL("../convex/tarlaDayPlanning.ts", import.meta.url), "utf8");
+assert.match(dayPlanning, /owner_test_admin/);
+assert.match(dayPlanning, /household user did not click approval/);
+assert.match(dayPlanning, /Test-admin plan approval is not configured or authorised/);
 const exactPreview = "Namaste Priya. Aaj ka meal plan — exact prepared text.";
 assert.equal(
   exactPreparedTarlaInstruction({ preparedInstruction: exactPreview, currentInstruction: exactPreview }),

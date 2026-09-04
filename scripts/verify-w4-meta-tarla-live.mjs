@@ -53,6 +53,11 @@ async function prepare(previewOnly) {
   if (!/^\+[1-9]\d{7,14}$/.test(recipient)) {
     throw new Error("W4_META_TEST_RECIPIENT_E164 is missing or invalid");
   }
+  const existingOwnerKey = process.env.W4_META_EXISTING_OWNER_KEY?.trim();
+  if (existingOwnerKey) {
+    await prepareExistingPlan(existingOwnerKey, recipient, previewOnly);
+    return;
+  }
 
   const fixtureKey = new Date().toISOString().replace(/[^0-9]/g, "");
   const ownerKey = `w4-meta-tarla-${fixtureKey}`;
@@ -484,6 +489,53 @@ function safeFutureLocalSchedule(minutes) {
     time: `${pad(parts.hour)}:${pad(parts.minute)}`,
     dayOfWeek: dayOfWeekForDate(targetDate),
   };
+}
+
+async function prepareExistingPlan(ownerKey, recipient, previewOnly) {
+  const session = await query("m5:getSession", { ownerKey });
+  const latestPlan = session?.setup?.tarla?.latestDayPlan;
+  if (!latestPlan || latestPlan.status !== "scheduled" || !latestPlan.approvedAt) {
+    throw new Error("Selected recipient has no approved/current Tarla plan");
+  }
+  const cookingPerson = session.setup.tarla.cookingPeople.find(
+    (item) => item.endpoint?.address === recipient && item.member && item.cookState,
+  );
+  if (!cookingPerson) {
+    throw new Error("Selected recipient is not linked to the approved plan's cooking person");
+  }
+  const detail = await getDayPlan(ownerKey, latestPlan._id);
+  const execution = detail.executions.find(
+    (item) =>
+      item.communicationEndpointId === cookingPerson.endpoint._id &&
+      item.status === "instruction_ready" &&
+      item.instruction,
+  );
+  if (!execution?.instruction) {
+    throw new Error("Approved plan has no prepared instruction for this cooking person");
+  }
+  const executionDetail = await getDayExecution(ownerKey, execution._id);
+  const state = {
+    ownerKey,
+    executionId: execution._id,
+    householdId: session.household._id,
+    approvedDayPlanId: latestPlan._id,
+    runId: executionDetail.run?.runId,
+    instruction: execution.instruction,
+    approvalSource: latestPlan.approvalSource,
+  };
+  if (process.env.W4_SKIP_LOCAL_STATE !== "1") {
+    writeFileSync(statePath, JSON.stringify(state, null, 2));
+  }
+  console.log(JSON.stringify({
+    phase: previewOnly ? "prepared_preview" : "prepared",
+    ownerKey,
+    householdId: state.householdId,
+    dayPlanId: state.approvedDayPlanId,
+    preparedPayloadId: state.executionId,
+    runId: state.runId,
+    instruction: state.instruction,
+    approvalSource: state.approvalSource,
+  }, null, 2));
 }
 
 async function sendPrepared() {

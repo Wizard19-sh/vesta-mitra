@@ -400,6 +400,11 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     approvedAt: v.optional(v.number()),
+    approvalSource: v.optional(
+      v.union(v.literal("household_user"), v.literal("owner_test_admin")),
+    ),
+    approvalActorLabel: v.optional(v.string()),
+    approvalNote: v.optional(v.string()),
   })
     .index("by_household", ["householdId"])
     .index("by_series", ["seriesId"]),
@@ -425,6 +430,11 @@ export default defineSchema({
     ),
     rawContent: v.string(),
     interpretation: v.optional(v.string()),
+    approvalSource: v.optional(
+      v.union(v.literal("household_user"), v.literal("owner_test_admin")),
+    ),
+    approvalActorLabel: v.optional(v.string()),
+    approvalNote: v.optional(v.string()),
     preferenceId: v.optional(v.id("preferences")),
     createdAt: v.number(),
   })

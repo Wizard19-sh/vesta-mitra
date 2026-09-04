@@ -9,6 +9,7 @@
  */
 
 import type * as agentRuns from "../agentRuns.js";
+import type * as betaAdmin from "../betaAdmin.js";
 import type * as executionExceptions from "../executionExceptions.js";
 import type * as executionSupport from "../executionSupport.js";
 import type * as http from "../http.js";
@@ -43,6 +44,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   agentRuns: typeof agentRuns;
+  betaAdmin: typeof betaAdmin;
   executionExceptions: typeof executionExceptions;
   executionSupport: typeof executionSupport;
   http: typeof http;

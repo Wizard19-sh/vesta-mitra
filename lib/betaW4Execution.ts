@@ -128,9 +128,10 @@ function executionEnvironment(
           ...(recipient.ownerKey ? { W4_META_EXISTING_OWNER_KEY: recipient.ownerKey } : {}),
           ...(mitraContext ? { W4_META_EXISTING_CONTEXT_JSON: JSON.stringify(mitraContext) } : {}),
         }
-      : {
+        : {
           W4_META_TARLA_STATE_PATH: stateFile,
           W4_META_TARLA_LEAD_MINUTES: "4",
+          ...(recipient.ownerKey ? { W4_META_EXISTING_OWNER_KEY: recipient.ownerKey } : {}),
           ...(prepared?.ownerKey && prepared.executionId
             ? {
                 W4_META_TARLA_OWNER_KEY: prepared.ownerKey,
