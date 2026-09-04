@@ -44,9 +44,15 @@ export const linkConsentedCookRecipient = mutation({
       throw new Error("That beta recipient is already linked to another contact");
     }
     const changed = endpoint.address !== recipientE164;
-    if (changed) {
-      await ctx.db.patch(endpoint._id, { address: recipientE164, updatedAt: Date.now() });
-    }
+    await ctx.db.patch(endpoint._id, {
+      ...(changed ? { address: recipientE164 } : {}),
+      providerMetadata: {
+        ...endpoint.providerMetadata,
+        provider: "meta",
+        ready: true,
+      },
+      updatedAt: Date.now(),
+    });
     const now = Date.now();
     await ctx.db.insert("productAnalyticsEvents", {
       eventKey: `beta-cook-link:${endpoint._id}:${now}`,
@@ -65,6 +71,8 @@ export const linkConsentedCookRecipient = mutation({
       cookStateId: cookState._id,
       endpointId: endpoint._id,
       changed,
+      provider: "meta",
+      ready: true,
     };
   },
 });

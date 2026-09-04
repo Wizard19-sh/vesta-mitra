@@ -58,6 +58,12 @@ const dayPlanning = readFileSync(new URL("../convex/tarlaDayPlanning.ts", import
 assert.match(dayPlanning, /owner_test_admin/);
 assert.match(dayPlanning, /household user did not click approval/);
 assert.match(dayPlanning, /Test-admin plan approval is not configured or authorised/);
+const betaAdmin = readFileSync(new URL("../convex/betaAdmin.ts", import.meta.url), "utf8");
+assert.match(betaAdmin, /provider:\s*"meta"/);
+assert.match(betaAdmin, /ready:\s*true/);
+const betaAdminMeta = readFileSync(new URL("../convex/betaAdminMeta.ts", import.meta.url), "utf8");
+assert.match(betaAdminMeta, /fields=id/);
+assert.doesNotMatch(betaAdminMeta, /\/messages/);
 const exactPreview = "Namaste Priya. Aaj ka meal plan — exact prepared text.";
 assert.equal(
   exactPreparedTarlaInstruction({ preparedInstruction: exactPreview, currentInstruction: exactPreview }),
