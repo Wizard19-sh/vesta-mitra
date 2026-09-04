@@ -341,11 +341,16 @@ export const getDashboard = query({
       .query("betaUserProfiles")
       .withIndex("by_owner", (q) => q.eq("ownerKey", ownerKey))
       .unique();
-    if (!profile) return null;
-    const household = await requireHousehold(ctx, profile.householdId, ownerKey);
-    const [primaryMember, members, preferences, endpoints, parents, routines, dayPlans, runs, tarlaProfiles, tarlaRules, cookStates, cookVisits, executions, exceptions, shoppingNeeded, executionEvents] =
+    const household = profile
+      ? await requireHousehold(ctx, profile.householdId, ownerKey)
+      : await ctx.db
+          .query("households")
+          .withIndex("by_owner", (q) => q.eq("ownerKey", ownerKey))
+          .order("desc")
+          .first();
+    if (!household) return null;
+    const [members, preferences, endpoints, parents, routines, dayPlans, runs, tarlaProfiles, tarlaRules, cookStates, cookVisits, executions, exceptions, shoppingNeeded, executionEvents] =
       await Promise.all([
-        ctx.db.get(profile.memberId),
         ctx.db
           .query("members")
           .withIndex("by_household", (q) => q.eq("householdId", household._id))
@@ -416,6 +421,9 @@ export const getDashboard = query({
           .order("desc")
           .take(250),
       ]);
+    const primaryMember = profile
+      ? await ctx.db.get(profile.memberId)
+      : members.find((member) => member.role.includes("primary user")) ?? members[0] ?? null;
     const latestInstances = await Promise.all(
       routines.map(async (routine) => {
         const instance = await ctx.db
@@ -429,10 +437,10 @@ export const getDashboard = query({
     const now = Date.now();
     return {
       profile: {
-        name: profile.name,
-        termsVersion: profile.termsVersion,
-        privacyVersion: profile.privacyVersion,
-        acceptedAt: profile.acceptedAt,
+        name: profile?.name ?? primaryMember?.name ?? household.name,
+        termsVersion: profile?.termsVersion ?? "closed-beta",
+        privacyVersion: profile?.privacyVersion ?? "closed-beta",
+        acceptedAt: profile?.acceptedAt ?? household.createdAt,
       },
       household,
       primaryMember,
