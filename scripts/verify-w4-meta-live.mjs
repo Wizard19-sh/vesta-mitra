@@ -146,10 +146,12 @@ async function prepare() {
     createdAt: Date.now(),
     previousAttempts,
   };
-  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, {
-    encoding: "utf8",
-    flag: previousAttempts.length ? "w" : "wx",
-  });
+  if (process.env.W4_SKIP_LOCAL_STATE !== "1") {
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: previousAttempts.length ? "w" : "wx",
+    });
+  }
 
   await waitForOutbound(state);
 }

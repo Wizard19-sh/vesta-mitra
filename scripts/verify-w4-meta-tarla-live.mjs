@@ -42,7 +42,7 @@ if (command === "prepare") {
 }
 
 async function prepare(previewOnly) {
-  if (existsSync(statePath)) {
+  if (process.env.W4_SKIP_LOCAL_STATE !== "1" && existsSync(statePath)) {
     throw new Error("A Tarla Meta live test is already recorded");
   }
   const recipient = (
@@ -296,10 +296,12 @@ async function prepare(previewOnly) {
     instruction: approval.executions[0].instruction,
     createdAt: Date.now(),
   };
-  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, {
-    encoding: "utf8",
-    flag: "wx",
-  });
+  if (process.env.W4_SKIP_LOCAL_STATE !== "1") {
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, {
+      encoding: "utf8",
+      flag: "wx",
+    });
+  }
 
   if (previewOnly) {
     console.log(JSON.stringify({

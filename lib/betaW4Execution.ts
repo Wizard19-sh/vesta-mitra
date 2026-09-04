@@ -82,6 +82,7 @@ function executionEnvironment(
 ) {
   return {
     ...process.env,
+    W4_SKIP_LOCAL_STATE: "1",
     W4_META_TEST_RECIPIENT_E164: recipient.e164,
     ...(agent === "mitra"
       ? { W4_META_LIVE_STATE_PATH: stateFile, W4_META_SCHEDULE_DELAY_MS: "1000" }
