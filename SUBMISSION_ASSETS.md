@@ -2,16 +2,21 @@
 
 ## Live public beta
 
-- Public Vercel URL: https://vesta-mitra-product-r0rw4ms9a-wizard-e2d1.vercel.app
-- Admin beta runner: https://vesta-mitra-product-r0rw4ms9a-wizard-e2d1.vercel.app/admin/beta
-- Deployment commit: `99b64257e9fd074f89f44a3456ed8000faed9aa7`
-- Feature commit: `99b64257e9fd074f89f44a3456ed8000faed9aa7`
+- Canonical public URL: https://getaevia.vercel.app
+- Canonical admin beta runner: https://getaevia.vercel.app/admin/beta
+- Canonical-domain validation: failed on 2026-09-05; the alias currently resolves to the older `vesta-mitra` production project, where the beta admin route is 404. No production routing was changed.
+- Latest Vercel deployment artifact: https://vesta-mitra-product-r0rw4ms9a-wizard-e2d1.vercel.app
+- Latest deployment admin artifact: https://vesta-mitra-product-r0rw4ms9a-wizard-e2d1.vercel.app/admin/beta
+- Implementation commit: `99b64257e9fd074f89f44a3456ed8000faed9aa7`
+- Submission-assets lineage: `8b901ea618cb78ddecf798661cd8137caf3c8384`
 - Meta readiness check commit: `de79885`
 - Branch: `m5-aevia-flow-and-m0-stability`
 - Convex target: `dev:grand-goshawk-952`
+- Pari household: `jx7b9qmphkehcery61md517a5d8dr545`
+- Pari plan: `nd76vxg1nw91x8n432vcs5s50s8dr2hg`
 - Deployment timestamp: 2026-09-05 04:47:49 IST
 - Public access: verified; landing and admin page returned HTTP 200 without Vercel authentication
-- WhatsApp send during deployment smoke test: none
+- WhatsApp sends in this phase: 0
 
 ## Live smoke test
 
@@ -31,6 +36,17 @@
 - SEND gate: passed; confirmation remained explicit and was not used
 - Mobile: passed at 390px with no horizontal overflow on landing, onboarding, dashboard, Household, Mitra, or Tarla
 - First live send blocker: refresh `META_WHATSAPP_ACCESS_TOKEN` in `dev:grand-goshawk-952`, then rerun the protected authentication check before using SEND
+
+## Current verification summary
+
+- BETA-5: passed
+- Mitra seven-case evaluation and M1.1: passed
+- W3.1: 7/7 passed
+- W4: 12/12 passed
+- TypeScript, lint, and production build: passed
+- Vaibhav Tarla preview: prepared on the latest deployment artifact with a masked recipient and no fixture-language leakage; SEND was not invoked
+- Canonical alias revalidation: root served the old `vesta-mitra` production application and `/admin/beta` returned 404
+- Current blocker: protected Meta authentication was revalidated against Convex development and still returned HTTP 401; no live send was attempted
 
 ## Canonical Tarla evidence
 
