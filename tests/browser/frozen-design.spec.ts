@@ -44,7 +44,11 @@ test("frozen design supports a fresh household from landing to dashboard", async
   await expect(page.locator("body")).not.toContainText(/jx[0-9a-z]{20,}/i);
   await expectNoOverflow(page);
 
-  await page.getByRole("button", { name: "Approve and activate" }).click();
+  await expect(page.getByRole("button", { name: "Approve plan" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Make changes" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Approve plan" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve plan" }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 45_000 });
   await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
   for (const route of ["/household", "/mitra", "/tarla"] as const) {
