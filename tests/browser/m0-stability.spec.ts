@@ -22,7 +22,7 @@ test("fresh identity continues, Back preserves values, and reload resumes", asyn
       name: /The everyday things you care about/i,
     }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Hello Aevia" }).first().click();
+  await page.getByRole("link", { name: /Get started/ }).first().click();
 
   await expect(
     page.getByRole("heading", {
@@ -104,7 +104,7 @@ test("storage write and analytics persistence failures do not crash navigation",
       name: /The everyday things you care about/i,
     }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Hello Aevia" }).first().click();
+  await page.getByRole("link", { name: /Get started/ }).first().click();
   await expect(
     page.getByRole("heading", {
       name: "Your setup isn’t available in this browser.",

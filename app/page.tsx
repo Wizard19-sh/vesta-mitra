@@ -11,6 +11,7 @@ import {
 } from "../lib/composeCheckIn";
 import { getOrCreateLegacyMitraCredential } from "../lib/aeviaSession";
 import { AeviaLanding } from "./AeviaLanding";
+import { AeviaLogo } from "./AeviaLogo";
 import styles from "./page.module.css";
 
 const SAMPLE_RESPONSE =
@@ -359,7 +360,7 @@ export function LegacyMitraJourney() {
 
 function Header({ activeStep }: { activeStep: Step }) {
   const progress = activeStep === "parent" ? 1 : activeStep === "routine" ? 2 : activeStep === "preview" ? 3 : 4;
-  return <header className={styles.header}><div className={styles.brandMark}>V</div><div><p className={styles.brand}>Vesta</p><p className={styles.product}>Mitra</p></div>{activeStep !== "landing" && activeStep !== "result" && <span className={styles.progress}>{progress} of 4</span>}</header>;
+  return <header className={styles.header}><AeviaLogo compact />{activeStep !== "landing" && activeStep !== "result" && <span className={styles.progress}>{progress} of 4</span>}</header>;
 }
 
 function SectionIntro({ number, kicker, title }: { number: string; kicker: string; title: string }) {

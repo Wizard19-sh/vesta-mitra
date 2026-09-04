@@ -14,7 +14,7 @@ test("fresh Both setup reuses people, reviews details, and supports returning ed
   const primaryName = `Asha Test ${stamp}`;
 
   await page.goto("/");
-  await page.getByRole("link", { name: "Hello Aevia" }).first().click();
+  await page.getByRole("link", { name: /Get started/ }).first().click();
   await page.getByLabel("Your name").fill(primaryName);
   await page.getByLabel("Email").fill(`m1-${stamp}@example.invalid`);
   await page.getByLabel("Household name").fill(`Test Household ${stamp}`);
@@ -75,12 +75,13 @@ test("fresh Both setup reuses people, reviews details, and supports returning ed
   await page.getByRole("button", { name: /Plan around nutrition goals/ }).click();
   const nutrition = page.locator("details").filter({ hasText: primaryName });
   await nutrition.getByRole("checkbox").check();
-  await nutrition.getByLabel("Age").fill("34");
-  await nutrition.getByLabel("Sex used by estimate").selectOption("female");
-  await nutrition.getByLabel("Activity").selectOption("lightly_active");
-  await nutrition.getByLabel("Height (cm)").fill("164");
-  await nutrition.getByLabel("Weight (kg)").fill("62");
-  await nutrition.getByLabel("Goal", { exact: true }).selectOption("maintain");
+  await nutrition.getByRole("spinbutton", { name: /^Age/ }).fill("34");
+  await nutrition.getByLabel("Sex / biological profile").selectOption("female");
+  await nutrition.getByLabel("Activity level & expenditure").selectOption("lightly_active");
+  await nutrition.getByLabel("Height feet").fill("5");
+  await nutrition.getByLabel("Height inches").fill("5");
+  await nutrition.getByRole("spinbutton", { name: /^Weight/ }).fill("62");
+  await nutrition.getByLabel("Primary nutritional focus").selectOption("maintain");
   await page.getByRole("button", { name: "Continue" }).click();
 
   await page.getByRole("button", { name: "Hired cook" }).click();
@@ -93,7 +94,7 @@ test("fresh Both setup reuses people, reviews details, and supports returning ed
   await page.getByRole("checkbox", { name: /They have agreed/ }).nth(1).check();
   await page.getByRole("button", { name: "Continue" }).click();
 
-  await page.getByLabel("Household context").fill("We usually eat lighter dinners. This is generic browser-test context.");
+  await page.getByLabel("Household notes and preferences").fill("We usually eat lighter dinners. This is generic browser-test context.");
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("heading", { name: "Here's what Aevia understood." })).toBeVisible();
   await expect(page.getByText("Mitra will help Baba")).toBeVisible();
@@ -101,17 +102,18 @@ test("fresh Both setup reuses people, reviews details, and supports returning ed
   await page.screenshot({ path: path.join(artifacts, "shared-member-review.png"), fullPage: true });
 
   await page.getByRole("button", { name: "Confirm and create" }).click();
-  await expect(page.getByRole("heading", { name: "A household plan you can understand." })).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByRole("heading", { name: "Your first Tarla plan" })).toBeVisible({ timeout: 45_000 });
   await expect(page.getByText("For the kitchen")).toBeVisible();
   await expect(page.getByText("serving equivalent", { exact: false })).toHaveCount(0);
   await page.screenshot({ path: path.join(artifacts, "per-person-and-kitchen-portions.png"), fullPage: true });
   await page.getByRole("checkbox", { name: /I've introduced Tarla/ }).check();
   await page.getByRole("button", { name: "Approve and activate" }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 45_000 });
-  await expect(page.getByRole("heading", { name: "Your home, today" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
 
   await page.reload();
-  await page.getByRole("link", { name: "Manage household" }).click();
+  await page.goto("/onboarding");
+  await page.getByRole("button", { name: "Edit" }).first().click();
   await expect(page.getByRole("heading", { name: "Who is part of your household?" })).toBeVisible();
   await page.getByLabel("Name", { exact: true }).nth(3).fill("Leela Test");
   await page.getByRole("button", { name: "Continue" }).click();

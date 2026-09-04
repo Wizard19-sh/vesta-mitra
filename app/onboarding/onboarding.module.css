@@ -6,3 +6,34 @@
 .shell,.loading{font-family:var(--font-aevia-sans),"Segoe UI",sans-serif}.brand,.panel>h1,.choiceCards strong,.groupTitle p,.nutritionSection h2,.reviewSection h2,.mealPlan>header h2,.kitchenSummary>p{font-family:var(--font-aevia-display),Georgia,serif}.primaryButton{box-shadow:0 8px 20px rgba(52,68,50,.22)}.memberCard,.cookCard,.reviewSection,.mealPlan{box-shadow:0 14px 32px rgba(45,47,37,.06)}
 @media(max-width:800px){.choiceCards>button{min-height:140px}.choiceCards em{margin-top:10px}}
 @media(max-width:480px){.choiceCards>button{min-height:124px;padding:18px}}
+
+/* Frozen onboarding authority: Organic Domestic Sanctuary */
+.shell{--cream:#fcf9f1;--paper:#fff;--forest:#162d1f;--sage:#cfe5d2;--terra:#4c6453;--charcoal:#1c1c17;--muted:#424843;background:var(--cream)}
+.header{grid-template-columns:minmax(120px,1fr) auto minmax(120px,1fr);min-height:80px;background:rgba(252,249,241,.9);border-color:#e5e2da;box-shadow:0 1px 8px rgba(44,67,52,.03)}
+.brand{font-family:var(--font-aevia-display),Georgia,serif;font-weight:500}
+.stepper{display:flex;align-items:center;justify-content:center;gap:8px;padding:4px;border-radius:999px;background:#f6f3eb}
+.stepper>span{display:flex;align-items:center;gap:7px;border-radius:999px;padding:7px 11px;color:#737973;font-size:.76rem;white-space:nowrap}
+.stepper i{display:grid;width:20px;height:20px;place-items:center;border:1px solid #c2c8c1;border-radius:50%;font-size:.66rem;font-style:normal}
+.stepper>span[data-active=true]{color:#fff;background:#2c4334;font-weight:700}
+.stepper>span[data-active=true] i{border-color:rgba(255,255,255,.4)}
+.stepper>span[data-complete=true]{color:#354c3c}
+.stepper>span[data-complete=true] i{border-color:transparent;background:#d2e8d5}
+.userBadge{justify-self:end;display:grid;text-align:right;line-height:1.25}
+.userBadge strong{font-size:.76rem}.userBadge span{color:#737973;font-size:.68rem}
+.panel{width:min(960px,calc(100% - 40px));padding-top:56px}
+.panel>h1{font-family:var(--font-aevia-display),Georgia,serif;font-weight:400;letter-spacing:-.025em}
+.eyebrow{width:fit-content;border:1px solid #d2e8d5;border-radius:999px;padding:6px 12px;color:#0d1f13;background:#eef4ed}
+.memberCard,.configCard,.routineCard,.ruleCard,.cookCard,.reviewSection,.mealPlan,.nutritionCard,.unsupportedNutrition{border-color:#e6e3db;border-radius:24px;box-shadow:0 12px 36px -12px rgba(44,67,52,.05),0 2px 6px rgba(44,67,52,.02)}
+.choiceCards>button,.selectPeople button,.inclusionList button{border-color:#e6e3db;border-radius:20px;background:#fff}
+.choiceCards>button[aria-pressed=true],.selectPeople button[aria-pressed=true],.inclusionList button[aria-pressed=true],.modeCards button[aria-pressed=true]{border-color:#2c4334;background:#e8efe9;box-shadow:none}
+.field input,.field select,.field textarea,.phoneField select,.phoneField input,.timeField select,.routineCard details textarea{border-color:#e6e3db;background:#faf9f5}
+.primaryButton{background:#162d1f;box-shadow:0 8px 20px rgba(22,45,31,.16)}
+.primaryButton:hover{background:#092013}
+.kitchenSummary{color:#1c1c17;border:1px solid #d2e8d5;background:#eef4e9}
+.kitchenSummary span{color:#424843}
+.restrictionBox{border-color:#ffdad6;background:#fff5f2}
+.reviewGrid{gap:24px}
+@media(max-width:1000px){.stepper>span{padding:7px}.stepper>span:not([data-active=true]){font-size:0}.stepper>span:not([data-active=true]) i{font-size:.66rem}}
+@media(max-width:800px){.header{grid-template-columns:1fr 1fr}.stepper{display:none}.userBadge{display:grid}.panel{padding-top:40px}}
+@media(max-width:480px){.header{min-height:68px}.userBadge span{display:none}.panel{width:min(100% - 32px,960px)}.eyebrow{font-size:.62rem}.actions{border:1px solid #e6e3db;background:rgba(252,249,241,.96)}}
+.heightInputs{display:grid;grid-template-columns:1fr 1fr;gap:10px}.heightInputs>div{position:relative;display:block}.heightInputs input{padding-right:38px}.heightInputs span{position:absolute;right:14px;top:50%;transform:translateY(-50%);color:#586156;font-size:13px;font-weight:700;pointer-events:none}

@@ -1,11 +1,12 @@
 import Link from "next/link";
+import { AeviaLogo } from "../AeviaLogo";
 import styles from "../legal.module.css";
 
 export default function BetaPage() {
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
-        <Link href="/" className={styles.brand}><span>A</span>Aevia</Link>
+        <AeviaLogo compact />
         <Link href="/onboarding" className={styles.cta}>Hello Aevia</Link>
       </header>
       <article className={styles.document}>

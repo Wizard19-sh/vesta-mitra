@@ -9,6 +9,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import { useDeviceCredential } from "../../lib/aeviaSession";
 import { useProductAnalytics } from "../../lib/productAnalytics";
 import { SessionUnavailable } from "../SessionUnavailable";
+import { AeviaLogo } from "../AeviaLogo";
 import styles from "./dashboard.module.css";
 
 export default function DashboardPage() {
@@ -62,7 +63,7 @@ export default function DashboardPage() {
   return (
     <main className={styles.shell}>
       <header className={styles.header}>
-        <Link href="/" className={styles.brand}>Aevia</Link>
+        <AeviaLogo compact />
         <nav><Link href="/dashboard">Home</Link><Link href="/household">Household</Link><Link href="/mitra">Mitra</Link><Link href="/tarla">Tarla</Link></nav>
         <p>Closed beta</p>
       </header>

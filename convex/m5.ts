@@ -175,14 +175,18 @@ export const createOrUpdateIdentity = mutation({
 export const getSession = query({
   args: { ownerKey: v.string() },
   handler: async (ctx, { ownerKey }) => {
-    const profile = await ctx.db
+    const storedProfile = await ctx.db
       .query("betaUserProfiles")
       .withIndex("by_owner", (q) => q.eq("ownerKey", ownerKey))
       .unique();
-    if (!profile) return null;
-    const household = await requireHousehold(ctx, profile.householdId, ownerKey);
-    const member = await ctx.db.get(profile.memberId);
-    if (!member || member.householdId !== household._id) return null;
+    const household = storedProfile
+      ? await requireHousehold(ctx, storedProfile.householdId, ownerKey)
+      : await ctx.db
+          .query("households")
+          .withIndex("by_owner", (q) => q.eq("ownerKey", ownerKey))
+          .order("desc")
+          .first();
+    if (!household) return null;
     const [
       members,
       parents,
@@ -256,6 +260,23 @@ export const getSession = query({
         (item.expiresAt === undefined || item.expiresAt > now),
     );
     const activeMembers = members.filter((item) => item.active !== false);
+    const member = storedProfile
+      ? activeMembers.find((item) => item._id === storedProfile.memberId)
+      : activeMembers.find((item) => /primary user/i.test(item.role)) ?? activeMembers[0];
+    if (!member) return null;
+    const profile = storedProfile ?? {
+      ownerKey,
+      householdId: household._id,
+      memberId: member._id,
+      name: member.name,
+      email: "",
+      termsVersion: "closed-beta",
+      privacyVersion: "closed-beta",
+      acceptedAt: household.createdAt,
+      betaStatus: "accepted" as const,
+      createdAt: household.createdAt,
+      updatedAt: household.updatedAt,
+    };
     const activeMemberIds = new Set(activeMembers.map((item) => String(item._id)));
     const mitraPeople = parents
       .filter((parent) => parent.memberId && activeMemberIds.has(String(parent.memberId)))

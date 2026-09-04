@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { BETA_DRAFT_LABEL, TERMS_VERSION } from "../../lib/betaPolicies";
 import { PolicyViewTracker } from "../PolicyViewTracker";
+import { AeviaLogo } from "../AeviaLogo";
 import styles from "../legal.module.css";
 
 export default function TermsPage() {
@@ -8,7 +9,7 @@ export default function TermsPage() {
     <main className={styles.shell}>
       <PolicyViewTracker type="terms" />
       <header className={styles.header}>
-        <Link href="/" className={styles.brand}><span>A</span>Aevia</Link>
+        <AeviaLogo compact />
         <Link href="/onboarding" className={styles.cta}>Hello Aevia</Link>
       </header>
       <article className={styles.document}>

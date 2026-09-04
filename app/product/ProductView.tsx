@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { useDeviceCredential } from "../../lib/aeviaSession";
 import { SessionUnavailable } from "../SessionUnavailable";
+import { AeviaLogo } from "../AeviaLogo";
 import styles from "./product.module.css";
 
 type View = "household" | "mitra" | "tarla";
@@ -30,7 +31,7 @@ export function ProductView({ view }: { view: View }) {
 
   return <main className={styles.shell}>
     <header className={styles.topbar}>
-      <Link className={styles.brand} href="/dashboard"><span aria-hidden="true">A</span>Aevia</Link>
+      <AeviaLogo compact href="/dashboard" />
       <nav aria-label="Household navigation"><Link href="/dashboard">Home</Link><Link className={view === "household" ? styles.active : ""} href="/household">Household</Link><Link className={view === "mitra" ? styles.active : ""} href="/mitra">Mitra</Link><Link className={view === "tarla" ? styles.active : ""} href="/tarla">Tarla</Link></nav>
       <p>Closed beta</p>
     </header>
