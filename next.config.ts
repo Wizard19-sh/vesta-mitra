@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
     "/api/admin/beta": [
       "./scripts/verify-w4-meta-live.mjs",
       "./scripts/verify-w4-meta-tarla-live.mjs",
+      "./node_modules/convex/**/*",
     ],
   },
 };
