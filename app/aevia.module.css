@@ -230,11 +230,11 @@
 
 .heroVisual {
   position: relative;
-  width: min(760px, calc(100% + 7vw));
+  width: 100%;
   min-height: 610px;
-  justify-self: start;
+  justify-self: stretch;
   overflow: hidden;
-  border-radius: 28px 0 0 28px;
+  border-radius: 28px;
   box-shadow: 0 32px 72px rgba(27, 43, 33, 0.12);
 }
 

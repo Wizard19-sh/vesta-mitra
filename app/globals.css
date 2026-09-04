@@ -19,7 +19,7 @@ body {
   flex-direction: column;
   color: var(--foreground);
   background: radial-gradient(circle at 85% 8%, rgba(196, 216, 202, 0.42), transparent 28%), var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-aevia-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

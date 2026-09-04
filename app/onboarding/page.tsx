@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import { useDeviceCredential } from "../../lib/aeviaSession";
 import { SessionUnavailable } from "../SessionUnavailable";
 import styles from "./onboarding.module.css";
@@ -29,7 +30,16 @@ type MemberDraft = {
   dietGoal: DietGoal;
 };
 
-type CreatedIds = { householdId: string; memberIds: string[]; dayPlanId: string };
+type CookSetup = {
+  mode: "member" | "hired";
+  name: string;
+  phone: string;
+  language: "English" | "Hindi" | "Hinglish";
+  frequency: "once_daily" | "twice_daily";
+  consentConfirmed: boolean;
+};
+
+type CreatedIds = { householdId: Id<"households">; memberIds: Id<"members">[]; dayPlanId: Id<"tarlaDayPlans"> };
 
 const allMeals = ["breakfast", "lunch", "snack", "dinner"];
 
@@ -47,6 +57,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
   const [members, setMembers] = useState<MemberDraft[]>([newMember()]);
   const [primaryKey, setPrimaryKey] = useState(members[0].clientKey);
   const [cookKey, setCookKey] = useState(members[0].clientKey);
+  const [cookSetup, setCookSetup] = useState<CookSetup>({ mode: "member", name: "", phone: "", language: "Hinglish", frequency: "once_daily", consentConfirmed: false });
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -54,10 +65,14 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
 
   const createHousehold = useMutation(api.vesta.createHousehold);
   const addMember = useMutation(api.vesta.addMember);
+  const addCommunicationEndpoint = useMutation(api.vesta.addCommunicationEndpoint);
+  const configureCook = useMutation(api.tarlaProfiles.configureCook);
+  const configureCookVisits = useMutation(api.tarlaProfiles.configureCookVisits);
   const upsertMemberProfile = useMutation(api.tarlaProfiles.upsertMemberProfile);
   const setNutritionTargets = useMutation(api.tarlaProfiles.setNutritionTargets);
   const estimateMemberNutrition = useMutation(api.tarlaProfiles.estimateMemberNutrition);
   const createFullDayPlan = useMutation(api.tarlaDayPlanning.createFullDayPlan);
+  const createdPlan = useQuery(api.tarlaDayPlanning.getDayPlan, created ? { ownerKey, dayPlanId: created.dayPlanId } : "skip");
 
   function nextBasics(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -98,6 +113,17 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
     setMembers((current) => current.map((member) => member.clientKey === clientKey ? { ...member, ...patch } : member));
   }
 
+  function nextRoles() {
+    if (cookSetup.mode === "hired" && (!cookSetup.name.trim() || !cookSetup.phone.trim())) {
+      return setError("Add your cook’s name and WhatsApp number.");
+    }
+    if (cookSetup.mode === "hired" && !cookSetup.consentConfirmed) {
+      return setError("Confirm that your cook knows Tarla can message them on WhatsApp.");
+    }
+    setError("");
+    setStep("review");
+  }
+
   async function confirm() {
     if (!primaryKey || !cookKey) return setError("Choose one primary user and one cooking person.");
     setBusy(true);
@@ -123,6 +149,29 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
         return memberId;
       }));
       const primaryIndex = members.findIndex((member) => member.clientKey === primaryKey);
+      if (cookSetup.mode === "hired") {
+        const cookMemberId = await addMember({
+          ownerKey, householdId, name: cookSetup.name.trim(), relationship: "Hired cook", role: "cooking person",
+          preferredSalutation: cookSetup.name.trim(), memberKind: "external", languagePreference: cookSetup.language,
+        });
+        const endpointId = await addCommunicationEndpoint({
+          ownerKey, householdId, memberId: cookMemberId, channel: "whatsapp", address: cookSetup.phone.trim(),
+          preferredLanguage: cookSetup.language, preferredMode: "text", consentStatus: "granted",
+        });
+        const cookStateId = await configureCook({
+          ownerKey, householdId, memberId: cookMemberId, communicationEndpointId: endpointId,
+          relationshipType: "hired_cook", visitFrequency: cookSetup.frequency, usualArrivalTime: "09:00", communicationTone: "warm and clear",
+        });
+        await configureCookVisits({
+          ownerKey, cookStateId, frequency: cookSetup.frequency,
+          visits: cookSetup.frequency === "twice_daily"
+            ? [
+                { label: "Morning visit", daysOfWeek: [0, 1, 2, 3, 4, 5, 6], arrivalTime: "09:00", timezone, mealSlots: ["breakfast", "lunch"] },
+                { label: "Evening visit", daysOfWeek: [0, 1, 2, 3, 4, 5, 6], arrivalTime: "17:00", timezone, mealSlots: ["snack", "dinner"] },
+              ]
+            : [{ label: "Daily visit", daysOfWeek: [0, 1, 2, 3, 4, 5, 6], arrivalTime: "09:00", timezone, mealSlots: allMeals }],
+        });
+      }
       const plan = await createFullDayPlan({
         ownerKey, householdId, requestedByMemberId: memberIds[primaryIndex], eaterMemberIds: memberIds,
         targetDate: new Date().toISOString().slice(0, 10), mealSlots: allMeals,
@@ -183,27 +232,36 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
         </form>
       </Panel>}
 
-      {step === "roles" && <Panel eyebrow="Household roles" title="Who is the primary user and who cooks?" supporting="These labels are saved with the household. This setup does not create or send cook messages.">
+      {step === "roles" && <Panel eyebrow="Tarla setup" title="Who usually prepares meals?" supporting="Choose someone at home, or add a hired cook. WhatsApp is only set up after you confirm they know about it.">
         <div className={styles.form}>
           <fieldset className={styles.selectPeople}><legend className={styles.helper}>Primary user</legend>{members.map((member) => <button key={`primary-${member.clientKey}`} type="button" aria-pressed={primaryKey === member.clientKey} onClick={() => setPrimaryKey(member.clientKey)}><strong>{member.name || "Unnamed member"}</strong><span>{member.relationship || "Household member"}</span><em>{primaryKey === member.clientKey ? "Primary user" : "Choose"}</em></button>)}</fieldset>
-          <fieldset className={styles.selectPeople}><legend className={styles.helper}>Cooking person</legend>{members.map((member) => <button key={`cook-${member.clientKey}`} type="button" aria-pressed={cookKey === member.clientKey} onClick={() => setCookKey(member.clientKey)}><strong>{member.name || "Unnamed member"}</strong><span>{member.relationship || "Household member"}</span><em>{cookKey === member.clientKey ? "Cooking person" : "Choose"}</em></button>)}</fieldset>
+          <div className={styles.choiceCards}>
+            <button type="button" aria-pressed={cookSetup.mode === "member"} onClick={() => setCookSetup((current) => ({ ...current, mode: "member" }))}><span>Tarla setup</span><strong>Someone at home</strong><p>Keep the plan inside the household.</p><em>{cookSetup.mode === "member" ? "Selected" : "Choose"}</em></button>
+            <button type="button" aria-pressed={cookSetup.mode === "hired"} onClick={() => setCookSetup((current) => ({ ...current, mode: "hired" }))}><span>Tarla setup</span><strong>A hired cook</strong><p>Set up a clear WhatsApp route with permission.</p><em>{cookSetup.mode === "hired" ? "Selected" : "Choose"}</em></button>
+          </div>
+          {cookSetup.mode === "member" ? <fieldset className={styles.selectPeople}><legend className={styles.helper}>Cooking person</legend>{members.map((member) => <button key={`cook-${member.clientKey}`} type="button" aria-pressed={cookKey === member.clientKey} onClick={() => setCookKey(member.clientKey)}><strong>{member.name || "Unnamed member"}</strong><span>{member.relationship || "Household member"}</span><em>{cookKey === member.clientKey ? "Selected" : "Choose"}</em></button>)}</fieldset> : <section className={styles.cookCard}>
+            <header><div><span>Cook details</span><strong>Set up the route clearly</strong></div></header>
+            <div className={styles.twoColumns}><Field label="Cook’s name"><input value={cookSetup.name} onChange={(event) => setCookSetup((current) => ({ ...current, name: event.target.value }))} placeholder="For example, Pinky didi" /></Field><Field label="WhatsApp number"><input inputMode="tel" value={cookSetup.phone} onChange={(event) => setCookSetup((current) => ({ ...current, phone: event.target.value }))} placeholder="+91…" /></Field></div>
+            <div className={styles.twoColumns}><Field label="Preferred language"><select value={cookSetup.language} onChange={(event) => setCookSetup((current) => ({ ...current, language: event.target.value as CookSetup["language"] }))}><option>English</option><option>Hindi</option><option>Hinglish</option></select></Field><Field label="Usually comes"><select value={cookSetup.frequency} onChange={(event) => setCookSetup((current) => ({ ...current, frequency: event.target.value as CookSetup["frequency"] }))}><option value="once_daily">Once a day</option><option value="twice_daily">Twice a day</option></select></Field></div>
+            <label className={styles.checkLine}><input type="checkbox" checked={cookSetup.consentConfirmed} onChange={(event) => setCookSetup((current) => ({ ...current, consentConfirmed: event.target.checked }))} />I have told this person that Tarla can message them about the meal plan on WhatsApp.</label>
+          </section>}
           <FormError error={error} />
-          <Actions back={() => setStep("members")} busy={busy}><button className={styles.primaryButton} type="button" onClick={() => { setError(""); setStep("review"); }}>Review household</button></Actions>
+          <Actions back={() => setStep("members")} busy={busy}><button className={styles.primaryButton} type="button" onClick={nextRoles}>Review household</button></Actions>
         </div>
       </Panel>}
 
       {step === "review" && <Panel eyebrow="Review" title="Check your household before creating the plan" supporting="Confirming creates the household, each member profile, and one full-day plan.">
         <div className={styles.reviewGrid}>
           <section className={styles.reviewSection}><h2>{householdName}</h2><p>{timezone}</p></section>
-          <section className={styles.reviewSection}><h2>Roles</h2><p>Primary user: {memberName(members, primaryKey)}</p><p>Cooking person: {memberName(members, cookKey)}</p></section>
-          <section className={styles.reviewSection}><h2>Members</h2><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {member.dietaryType.replace("_", " ")}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Diet goal: {member.dietGoal}<br />Derived goals: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />Calories use Mifflin–St Jeor; protein uses age-group weight guidance.</small></li>; })}</ul></section>
+          <section className={styles.reviewSection}><h2>Tarla</h2><p>Primary user: {memberName(members, primaryKey)}</p><p>{cookSetup.mode === "hired" ? `${cookSetup.name || "Your cook"} will be set up on WhatsApp in ${cookSetup.language}.` : `Cooking person: ${memberName(members, cookKey)}`}</p></section>
+          <section className={styles.reviewSection}><h2>People and meal logic</h2><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {foodLabel(member.dietaryType)} · {goalLabel(member.dietGoal)}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Estimated daily target: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />{nutritionNote(member)}</small></li>; })}</ul></section>
         </div>
         <FormError error={error} />
         <Actions back={() => setStep("roles")} busy={busy}><button className={styles.primaryButton} type="button" disabled={busy} onClick={confirm}>{busy ? "Creating your first plan…" : "Confirm and create my first day plan"}</button></Actions>
       </Panel>}
 
-      {step === "complete" && created && <Panel eyebrow="Your first plan" title="Your household and first day plan are ready" supporting="The plan is waiting for review. No WhatsApp message was sent.">
-        <div className={styles.reviewSection}><p><strong>Household ID</strong><br />{created.householdId}</p><p><strong>Member IDs</strong><br />{created.memberIds.join(", ")}</p><p><strong>Day plan ID</strong><br />{created.dayPlanId}</p></div>
+      {step === "complete" && created && <Panel eyebrow="Your first Tarla plan" title="Your household plan is ready" supporting="This is a starting point based on what you shared. No WhatsApp message was sent from this setup.">
+        {createdPlan === undefined ? <div className={styles.loadingCard}>Building your plan…</div> : <><div className={styles.planStack}>{createdPlan?.meals.map((meal) => <section className={styles.mealPlan} key={meal.join._id}><header><span>{meal.join.mealSlot}</span><h2>{meal.calculated.plan.templateName}</h2></header><p>{meal.calculated.plan.items.map((item) => item.recipeName).join(" · ")}</p></section>)}</div><div className={styles.inlineActions}><Link href="/dashboard">Go to household home</Link><button type="button" onClick={() => setStep("review")}>Review setup</button></div></>}
       </Panel>}
     </section>
   </main>;
@@ -221,6 +279,9 @@ function computedTargets(member: MemberDraft) {
   const calorieMultiplier = member.dietGoal === "moderate_deficit" ? 0.9 : member.dietGoal === "stronger_deficit" ? 0.8 : 1;
   return { calorieTargetKcal: Math.round(bmr * multiplier[member.activityLevel] * calorieMultiplier), proteinTargetG: Math.round(Number(member.weightKg) * (member.dietGoal === "high_protein" ? 1.6 : member.lifeStage === "child" ? 0.95 : 0.8)) };
 }
+function goalLabel(value: DietGoal) { return ({ maintain: "Balanced meals", moderate_deficit: "Moderate calorie reduction", stronger_deficit: "Stronger calorie reduction", high_protein: "Higher protein" } as const)[value]; }
+function foodLabel(value: DietaryType) { return value === "non_vegetarian" ? "Non-vegetarian" : value === "eggetarian" ? "Eggetarian" : "Vegetarian"; }
+function nutritionNote(member: MemberDraft) { return member.dietGoal === "high_protein" ? "Protein target uses body weight × 1.6." : "Calories use your age, height, weight and activity; protein uses age-group guidance."; }
 function memberRole(member: MemberDraft, primaryKey: string, cookKey: string) { const parts = [member.clientKey === primaryKey ? "primary user" : "household member"]; if (member.clientKey === cookKey) parts.push("cook"); return parts.join(" and "); }
 function memberName(members: MemberDraft[], clientKey: string) { return members.find((member) => member.clientKey === clientKey)?.name || "Not chosen"; }
 function progress(step: Step) { return ({ basics: 20, members: 40, roles: 60, review: 80, complete: 100 } as const)[step]; }
