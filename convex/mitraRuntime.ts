@@ -11,6 +11,7 @@ import {
   shouldFollowUpWithCaretaker,
 } from "../lib/m2Execution";
 import { composeMitraMessage, type AeviaLanguage } from "../lib/aeviaSetup";
+import { resolveMemberSalutation } from "../lib/mitraSalutation";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -216,9 +217,11 @@ export const triggerRoutine = internalMutation({
       recipientMember.languagePreference,
       parent.preferredLanguage,
     );
-    const seniorSalutation = resolveSalutation(activePreferences, parent);
-    const recipientSalutation =
-      recipientMember.preferredSalutation ?? recipientMember.name;
+    const seniorSalutation = resolveSalutation(activePreferences, parent, member);
+    const recipientSalutation = resolveMemberSalutation({
+      preferredSalutation: recipientMember.preferredSalutation,
+      displayName: recipientMember.name,
+    });
     const message = composeMitraMessage({
       context: {
         agent: "mitra",
@@ -359,9 +362,10 @@ export const handleResponseTimeout = internalMutation({
     }
     const run = await ctx.db.get(instance.runId);
     if (!run) return null;
-    const [parent, routine] = await Promise.all([
+    const [parent, routine, seniorMember] = await Promise.all([
       ctx.db.get(instance.parentId),
       ctx.db.get(instance.routineId),
+      instance.memberId ? ctx.db.get(instance.memberId) : null,
     ]);
     if (!parent || !routine || !instance.householdId || !instance.memberId) {
       return null;
@@ -395,8 +399,8 @@ export const handleResponseTimeout = internalMutation({
         const language = endpointLanguage(caretakerEndpoint.preferredLanguage);
         const message = composeCaretakerNoResponseFollowUp({
           language,
-          caretakerSalutation: caretaker.preferredSalutation ?? caretaker.name,
-          seniorSalutation: senior.preferredSalutation ?? parent.salutation ?? parent.name,
+          caretakerSalutation: resolveMemberSalutation({ preferredSalutation: caretaker.preferredSalutation, displayName: caretaker.name }),
+          seniorSalutation: resolveMemberSalutation({ preferredSalutation: senior.preferredSalutation, displayName: senior.name }),
           routineLabel: routine.label ?? routine.prompt,
         });
         const sent = await getMessageTransport(ctx).sendMessage({
@@ -473,7 +477,7 @@ export const handleResponseTimeout = internalMutation({
         summary: "No response arrived within the configured response window.",
         basis: "response_window",
       },
-      primaryUserSummary: `${parent.salutation ?? parent.name} did not reply about ${routine.label ?? routine.prompt}.`,
+      primaryUserSummary: `${resolveMemberSalutation({ preferredSalutation: seniorMember?.preferredSalutation, displayName: seniorMember?.name ?? parent.name })} did not reply about ${routine.label ?? routine.prompt}.`,
     });
     await addCompletedStep(
       ctx,
@@ -644,6 +648,7 @@ function resolveLanguage(
 function resolveSalutation(
   preferences: Doc<"preferences">[],
   parent: Doc<"parents">,
+  member: Doc<"members">,
 ) {
   const memory = [...preferences]
     .reverse()
@@ -652,7 +657,10 @@ function resolveSalutation(
         preference.category === "communication" &&
         preference.key === "salutation",
     )?.value;
-  return memory?.trim() || parent.salutation || parent.name;
+  return resolveMemberSalutation({
+    preferredSalutation: memory?.trim() || member.preferredSalutation,
+    displayName: member.name || parent.name,
+  });
 }
 
 function readyEndpoint(

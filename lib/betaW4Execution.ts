@@ -2,7 +2,11 @@ import "server-only";
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
+import { ConvexHttpClient } from "convex/browser";
+import { makeFunctionReference } from "convex/server";
+import { composeMitraMessage, type AeviaLanguage } from "./aeviaSetup";
 import type { BetaRecipient } from "./betaRecipients";
+import { resolveMemberSalutation } from "./mitraSalutation";
 
 export type ProvenW4Result = {
   runKey: string;
@@ -21,12 +25,35 @@ type PreparedTokenPayload = {
   agent: "mitra" | "tarla";
   ownerKey?: string;
   executionId?: string;
+  previewDigest?: string;
+};
+
+type BetaMitraContext = {
+  householdId: string;
+  memberId: string;
+  parentId: string;
+  endpointId: string;
+  timezone: string;
+  displayName: string;
+  preferredSalutation?: string;
+  language: AeviaLanguage;
 };
 
 export async function prepareProvenW4(input: { recipient: BetaRecipient; agent: "mitra" | "tarla" }) {
   const runKey = randomUUID();
   if (input.agent === "mitra") {
-    return { runKey, preparedToken: sign({ runKey, recipientId: input.recipient.id, agent: input.agent }) };
+    const context = await resolveBetaMitraContext(input.recipient);
+    const instruction = composeBetaMitraInstruction(context);
+    return {
+      runKey,
+      instruction,
+      preparedToken: sign({
+        runKey,
+        recipientId: input.recipient.id,
+        agent: input.agent,
+        previewDigest: digest(instruction),
+      }),
+    };
   }
   const stateFile = `.beta-w4-tarla-${runKey}.json`;
   const result = await runNode("scripts/verify-w4-meta-tarla-live.mjs", ["prepare_preview"], executionEnvironment(input.recipient, "tarla", stateFile));
@@ -60,9 +87,18 @@ export async function executeProvenW4(input: {
   const stateFile = input.agent === "mitra"
     ? `.beta-w4-mitra-${runKey}.json`
     : `.beta-w4-tarla-${runKey}.json`;
-  const command = input.agent === "mitra" ? "prepare" : "send_prepared";
-  const result = await runNode(script, [command], executionEnvironment(input.recipient, input.agent, stateFile, prepared));
+  const mitraContext = input.agent === "mitra" ? await resolveBetaMitraContext(input.recipient) : undefined;
+  const expectedMitraInstruction = mitraContext ? composeBetaMitraInstruction(mitraContext) : undefined;
+  if (expectedMitraInstruction && prepared.previewDigest !== digest(expectedMitraInstruction)) {
+    throw new Error("Prepared Mitra message is stale; prepare again");
+  }
+  const command = input.agent === "mitra" ? "prepare_existing" : "send_prepared";
+  const result = await runNode(script, [command], executionEnvironment(input.recipient, input.agent, stateFile, prepared, mitraContext));
   const payload = requiredPayload(result.stdout);
+  const instruction = text(payload.instruction) ?? expectedMitraInstruction;
+  if (input.agent === "mitra" && (!instruction || prepared.previewDigest !== digest(instruction))) {
+    throw new Error("Dispatched Mitra text did not match the prepared preview");
+  }
   return {
     runKey,
     stateFile,
@@ -70,7 +106,7 @@ export async function executeProvenW4(input: {
     evidenceId: text(payload.evidenceId),
     providerStatus: text(payload.providerStatus),
     providerMessageId: text(payload.providerMessageId),
-    instruction: text(payload.instruction),
+    instruction,
   };
 }
 
@@ -79,13 +115,19 @@ function executionEnvironment(
   agent: "mitra" | "tarla",
   stateFile: string,
   prepared?: PreparedTokenPayload,
+  mitraContext?: BetaMitraContext,
 ) {
   return {
     ...process.env,
     W4_SKIP_LOCAL_STATE: "1",
     W4_META_TEST_RECIPIENT_E164: recipient.e164,
     ...(agent === "mitra"
-      ? { W4_META_LIVE_STATE_PATH: stateFile, W4_META_SCHEDULE_DELAY_MS: "1000" }
+      ? {
+          W4_META_LIVE_STATE_PATH: stateFile,
+          W4_META_SCHEDULE_DELAY_MS: "1000",
+          ...(recipient.ownerKey ? { W4_META_EXISTING_OWNER_KEY: recipient.ownerKey } : {}),
+          ...(mitraContext ? { W4_META_EXISTING_CONTEXT_JSON: JSON.stringify(mitraContext) } : {}),
+        }
       : {
           W4_META_TARLA_STATE_PATH: stateFile,
           W4_META_TARLA_LEAD_MINUTES: "4",
@@ -97,6 +139,43 @@ function executionEnvironment(
             : {}),
         }),
   };
+}
+
+async function resolveBetaMitraContext(recipient: BetaRecipient): Promise<BetaMitraContext> {
+  if (!recipient.ownerKey) throw new Error("Selected recipient is not linked to a shared household");
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL?.trim();
+  if (!convexUrl) throw new Error("Convex development URL is not configured");
+  const client = new ConvexHttpClient(convexUrl);
+  const context = await client.query(
+    makeFunctionReference<"query">("m5:getBetaMitraRecipientContext"),
+    {
+      ownerKey: recipient.ownerKey,
+      address: recipient.e164,
+      displayName: recipient.displayName,
+      householdLabel: recipient.label,
+    },
+  ) as BetaMitraContext | null;
+  if (!context) throw new Error("Selected recipient has no ready, consented Mitra member record");
+  return context;
+}
+
+function composeBetaMitraInstruction(context: BetaMitraContext) {
+  const salutation = resolveMemberSalutation({
+    preferredSalutation: context.preferredSalutation,
+    displayName: context.displayName,
+  });
+  return composeMitraMessage({
+    recipientSalutation: salutation,
+    seniorSalutation: salutation,
+    label: "evening walk",
+    type: "Walk / activity",
+    language: context.language,
+    context: { agent: "mitra", audience: "senior", surface: "whatsapp", moment: "reminder" },
+  });
+}
+
+function digest(value: string) {
+  return createHmac("sha256", "aevia-beta-preview-v1").update(value).digest("base64url");
 }
 
 function requiredPayload(output: string) {
@@ -129,6 +208,9 @@ function verify(token: string, recipientId: string, agent: string) {
   }
   if (agent === "tarla" && (!payload.ownerKey || !payload.executionId)) {
     throw new Error("Prepared Tarla payload reference is missing; prepare again");
+  }
+  if (agent === "mitra" && !payload.previewDigest) {
+    throw new Error("Prepared Mitra preview reference is missing; prepare again");
   }
   return payload;
 }

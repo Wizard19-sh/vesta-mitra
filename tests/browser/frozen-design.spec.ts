@@ -52,13 +52,13 @@ test("admin beta keeps numbers masked and stops at exact preview", async ({ page
   await page.getByRole("button", { name: "Load recipients" }).click();
   const recipient = page.getByLabel("Recipient");
   await expect(recipient).toBeVisible();
-  const enabledValue = await recipient.locator("option:not([disabled])").first().getAttribute("value");
+  const enabledValue = await recipient.locator("option", { hasText: "Mohit" }).getAttribute("value");
   expect(enabledValue).toBeTruthy();
   await recipient.selectOption(enabledValue!);
   const pageText = await page.locator("body").innerText();
   expect(pageText).not.toMatch(/\+\d{10,15}/);
   await page.getByRole("button", { name: "Prepare exact preview" }).click();
-  await expect(page.getByText("Ji, evening walk ka time ho gaya.", { exact: true })).toBeVisible({ timeout: 45_000 });
+  await expect(page.getByText("Papa, evening walk ka time ho gaya.", { exact: true })).toBeVisible({ timeout: 45_000 });
   await expect(page.getByLabel("Type SEND to confirm")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send prepared message" })).toBeVisible();
   await expectNoOverflow(page);

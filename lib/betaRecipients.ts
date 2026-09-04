@@ -4,12 +4,13 @@ export type BetaRecipient = {
   id: string;
   displayName: string;
   e164: string;
+  ownerKey?: string;
   role: BetaRecipientRole;
   label?: string;
   enabled: boolean;
 };
 
-export type BetaRecipientView = Omit<BetaRecipient, "e164"> & { maskedPhone: string };
+export type BetaRecipientView = Omit<BetaRecipient, "e164" | "ownerKey"> & { maskedPhone: string };
 
 const roles = new Set<BetaRecipientRole>(["primary_user", "senior", "cook", "other"]);
 
@@ -52,7 +53,8 @@ function parseRecipient(value: unknown, index: number): BetaRecipient {
   if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id) || !/^\+[1-9]\d{7,14}$/.test(e164) || !roles.has(role)) throw new Error(`Beta recipient ${index + 1} is invalid`);
   if (typeof item.enabled !== "boolean") throw new Error(`Beta recipient ${index + 1} enabled must be boolean`);
   const label = item.label === undefined ? undefined : text(item.label, `Beta recipient ${index + 1} label`, 160);
-  return { id, displayName, e164, role, label, enabled: item.enabled };
+  const ownerKey = item.ownerKey === undefined ? undefined : text(item.ownerKey, `Beta recipient ${index + 1} household key`, 200);
+  return { id, displayName, e164, ownerKey, role, label, enabled: item.enabled };
 }
 
 function text(value: unknown, label: string, maxLength: number) {

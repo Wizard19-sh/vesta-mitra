@@ -30,6 +30,8 @@ const command = process.argv[2];
 
 if (command === "prepare") {
   await prepare();
+} else if (command === "prepare_existing") {
+  await prepareExistingRecipient();
 } else if (command === "retry") {
   await retryTimedOutAttempt();
 } else if (command === "inspect") {
@@ -37,7 +39,44 @@ if (command === "prepare") {
 } else if (command === "status") {
   await status();
 } else {
-  throw new Error("Use prepare, retry, inspect, or status");
+  throw new Error("Use prepare, prepare_existing, retry, inspect, or status");
+}
+
+async function prepareExistingRecipient() {
+  const rawContext = process.env.W4_META_EXISTING_CONTEXT_JSON;
+  if (!rawContext) throw new Error("Existing Mitra recipient context is required");
+  let context;
+  try { context = JSON.parse(rawContext); } catch { throw new Error("Existing Mitra recipient context is invalid"); }
+  for (const key of ["householdId", "memberId", "parentId", "endpointId", "timezone", "displayName"]) {
+    if (typeof context[key] !== "string" || !context[key].trim()) throw new Error(`Existing Mitra recipient ${key} is invalid`);
+  }
+  const ownerKey = requiredText(process.env.W4_META_EXISTING_OWNER_KEY ?? localEnvironment.W4_META_EXISTING_OWNER_KEY ?? "");
+  const scheduledAt = Date.now() + scheduledDelayMs();
+  const routine = await mutate("mitraRoutines:createScheduledRoutine", {
+    ownerKey,
+    householdId: context.householdId,
+    memberId: context.memberId,
+    recipientMemberId: context.memberId,
+    recipientAudience: "senior",
+    parentId: context.parentId,
+    communicationEndpointId: context.endpointId,
+    type: "Walk / activity",
+    label: "evening walk",
+    timing: { kind: "once_scheduled", timezone: context.timezone, scheduledAt },
+    responseWindowMs: 10 * 60 * 1_000,
+  });
+  const state = {
+    ownerKey,
+    householdId: context.householdId,
+    parentMemberId: context.memberId,
+    parentId: context.parentId,
+    endpointId: context.endpointId,
+    routineId: routine.routineId,
+    scheduledAt,
+    createdAt: Date.now(),
+    previousAttempts: [],
+  };
+  await waitForOutbound(state);
 }
 
 async function prepare() {
@@ -198,6 +237,7 @@ async function waitForOutbound(state) {
           : null,
         providerStatus: message.status,
         providerMessageId: message.providerMessageId,
+        instruction: message.message,
         runId: detail.run?._id,
         instanceId: detail.instance._id,
         instanceState: detail.instance.status,
@@ -441,4 +481,9 @@ function scheduledDelayMs() {
     throw new Error("W4_META_SCHEDULE_DELAY_MS must be between 1 second and 10 minutes");
   }
   return configured;
+}
+
+function requiredText(value) {
+  if (typeof value !== "string" || !value.trim()) throw new Error("Existing Mitra household key is required");
+  return value.trim();
 }

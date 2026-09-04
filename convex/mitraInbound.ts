@@ -6,6 +6,7 @@ import {
   primaryUserMitraSummary,
 } from "../lib/m2Execution";
 import type { AeviaLanguage } from "../lib/aeviaSetup";
+import { resolveMemberSalutation } from "../lib/mitraSalutation";
 import type { MitraRoutineType } from "../lib/composeRoutineMessage";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx } from "./_generated/server";
@@ -134,10 +135,12 @@ export const ingestSignal = mutation({
       });
       return { signalId, matched: false, checkInId: undefined };
     }
-    const [routine, parent, run] = await Promise.all([
+    const [routine, parent, run, sourceMember, seniorMember] = await Promise.all([
       ctx.db.get(openInstance.routineId),
       ctx.db.get(openInstance.parentId),
       ctx.db.get(openInstance.runId),
+      ctx.db.get(endpoint.memberId),
+      openInstance.memberId ? ctx.db.get(openInstance.memberId) : null,
     ]);
     if (!routine || !parent || !run) {
       const signalId = await persistSignal(ctx, args, {
@@ -228,6 +231,14 @@ export const ingestSignal = mutation({
         : (openInstance.intendedRecipientClass ??
           routine.recipientAudience ??
           "senior");
+    const personSalutation = resolveMemberSalutation({
+      preferredSalutation: seniorMember?.preferredSalutation,
+      displayName: seniorMember?.name ?? parent.name,
+    });
+    const recipientSalutation = resolveMemberSalutation({
+      preferredSalutation: sourceMember?.preferredSalutation,
+      displayName: sourceMember?.name ?? parent.name,
+    });
     const language = supportedLanguage(
       endpoint.preferredLanguage ?? parent.preferredLanguage,
     );
@@ -280,6 +291,7 @@ export const ingestSignal = mutation({
       const acknowledgement = composeMitraAcknowledgement({
         language,
         outcome: "change_pending",
+        recipientSalutation,
       });
       const sent = await getMessageTransport(ctx).sendMessage({
         recipient: {
@@ -323,7 +335,7 @@ export const ingestSignal = mutation({
         responseSourceMemberId: endpoint.memberId,
         responseSourceAudience: sourceAudience,
         acknowledgementOutboundMessageId: sent.messageId,
-        primaryUserSummary: `${parent.salutation ?? parent.name} asked to stop the ${routine.label ?? routine.prompt} reminder. Your approval is required before it changes.`,
+        primaryUserSummary: `${personSalutation} asked to stop the ${routine.label ?? routine.prompt} reminder. Your approval is required before it changes.`,
       });
       await addWaitingStep(
         ctx,
@@ -353,7 +365,7 @@ export const ingestSignal = mutation({
       signalType: args.signalType,
       rawContent: args.rawContent,
       routineType: runtimeRoutineType(routine.type),
-      parentLabel: parent.salutation ?? parent.name,
+      parentLabel: personSalutation,
       confirmingReactions: routine.confirmingReactions,
     });
     await addCompletedStep(
@@ -396,6 +408,7 @@ export const ingestSignal = mutation({
       const acknowledgement = composeMitraAcknowledgement({
         language,
         outcome: "completed",
+        recipientSalutation,
       });
       const sent = await getMessageTransport(ctx).sendMessage({
         recipient: {
@@ -417,7 +430,7 @@ export const ingestSignal = mutation({
       await ctx.db.patch(openInstance._id, {
         acknowledgementOutboundMessageId: sent.messageId,
         primaryUserSummary: primaryUserMitraSummary({
-          personSalutation: parent.salutation ?? parent.name,
+          personSalutation,
           routineType: runtimeRoutineType(routine.type),
           routineLabel: routine.label ?? routine.prompt,
           sourceAudience,

@@ -8,6 +8,51 @@ export const getRuntimeVersion = query({
   handler: async () => "m5-functional-cleanup-v1" as const,
 });
 
+export const getBetaMitraRecipientContext = query({
+  args: {
+    ownerKey: v.string(),
+    address: v.string(),
+    displayName: v.string(),
+    householdLabel: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const addresses = [args.address, `whatsapp:${args.address}`];
+    const endpoints = (
+      await Promise.all(addresses.map((address) =>
+        ctx.db.query("communicationEndpoints").withIndex("by_channel_and_address", (q) =>
+          q.eq("channel", "whatsapp").eq("address", address),
+        ).collect(),
+      ))
+    ).flat().sort((left, right) => right.updatedAt - left.updatedAt);
+    for (const endpoint of endpoints) {
+      const [household, member, parent, readiness] = await Promise.all([
+        ctx.db.get(endpoint.householdId),
+        ctx.db.get(endpoint.memberId),
+        ctx.db.query("parents").withIndex("by_member", (q) => q.eq("memberId", endpoint.memberId)).first(),
+        ctx.db.query("mitraMemberStates").withIndex("by_member", (q) => q.eq("memberId", endpoint.memberId)).unique(),
+      ]);
+      if (
+        !household || household.ownerKey !== args.ownerKey ||
+        !member || member.active === false || member.name.trim().toLocaleLowerCase() !== args.displayName.trim().toLocaleLowerCase() ||
+        !parent || readiness?.readiness !== "ready" ||
+        !endpoint.active || endpoint.consentStatus !== "granted" || endpoint.providerMetadata?.ready !== true ||
+        (args.householdLabel && !household.name.toLocaleLowerCase().includes(args.householdLabel.trim().toLocaleLowerCase()))
+      ) continue;
+      return {
+        householdId: household._id,
+        memberId: member._id,
+        parentId: parent._id,
+        endpointId: endpoint._id,
+        timezone: household.timezone,
+        displayName: member.name,
+        preferredSalutation: member.preferredSalutation,
+        language: endpoint.preferredLanguage ?? member.languagePreference ?? parent.preferredLanguage ?? "English",
+      };
+    }
+    return null;
+  },
+});
+
 export const createOrUpdateIdentity = mutation({
   args: {
     ownerKey: v.string(),

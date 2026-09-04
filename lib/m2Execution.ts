@@ -95,19 +95,21 @@ export function isHigherRiskReminderChange(input: {
 export function composeMitraAcknowledgement(input: {
   language: AeviaLanguage;
   outcome: "completed" | "change_pending";
+  recipientSalutation?: string;
 }) {
+  const address = input.recipientSalutation ? ` ${input.recipientSalutation}` : "";
   if (input.outcome === "change_pending") {
     if (input.language === "English") {
-      return "I’ve noted your request. The reminder will stay the same until your family confirms the change.";
+      return `I’ve noted your request${address}. The reminder will stay the same until your family confirms the change.`;
     }
     if (input.language === "Hindi") {
-      return "Aapki baat note kar li hai. Parivaar ke confirm karne tak reminder waise hi rahega.";
+      return `Theek hai${address}. Aapki baat note kar li hai. Parivaar ke confirm karne tak reminder waise hi rahega.`;
     }
-    return "Aapki baat note kar li hai. Family ke confirm karne tak reminder waise hi rahega.";
+    return `Theek hai${address}. Aapki baat note kar li hai. Family ke confirm karne tak reminder waise hi rahega.`;
   }
-  if (input.language === "English") return "Got it, thank you.";
-  if (input.language === "Hindi") return "Achha, theek hai. Shukriya.";
-  return "Achha, theek hai. Thank you.";
+  if (input.language === "English") return `Got it${address}, thank you.`;
+  if (input.language === "Hindi") return `Achha, theek hai${address}. Shukriya.`;
+  return `Achha, theek hai${address}. Thank you.`;
 }
 
 export function composeCaretakerNoResponseFollowUp(input: {

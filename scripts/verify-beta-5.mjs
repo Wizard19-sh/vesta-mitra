@@ -5,6 +5,9 @@ import { randomUUID } from "node:crypto";
 import { parseBetaRecipients, recipientView } from "../lib/betaRecipients.ts";
 import { interpretRoutineSignal } from "../lib/interpretRoutineSignal.ts";
 import { exactPreparedTarlaInstruction } from "../lib/preparedTarlaPayload.ts";
+import { composeMitraMessage } from "../lib/aeviaSetup.ts";
+import { composeMitraAcknowledgement } from "../lib/m2Execution.ts";
+import { resolveMemberSalutation } from "../lib/mitraSalutation.ts";
 
 const registry = JSON.stringify([
   { id: "sid", displayName: "Sid", e164: "+919900000001", role: "primary_user", enabled: true },
@@ -19,6 +22,15 @@ assert.equal(recipients.filter((recipient) => recipient.enabled).length, 4);
 const browserValue = JSON.stringify(recipients.map(recipientView));
 assert.ok(!browserValue.includes("+919900000001"), "raw E.164 never reaches the browser projection");
 assert.equal(recipients.find((recipient) => recipient.id === "priya")?.id, "priya");
+const mohitSalutation = resolveMemberSalutation({ preferredSalutation: "papa", displayName: "Mohit" });
+assert.equal(mohitSalutation, "Papa");
+assert.equal(resolveMemberSalutation({ displayName: "Mohit" }), "Mohit Ji");
+const mitraReminderInput = { recipient: { preferredSalutation: "papa", displayName: "Mohit" }, senior: { preferredSalutation: "papa", displayName: "Mohit" }, label: "evening walk", type: "Walk / activity", language: "Hinglish", context: { agent: "mitra", audience: "senior", surface: "whatsapp", moment: "reminder" } };
+const previewText = composeMitraMessage({ recipientSalutation: resolveMemberSalutation(mitraReminderInput.recipient), seniorSalutation: resolveMemberSalutation(mitraReminderInput.senior), label: mitraReminderInput.label, type: mitraReminderInput.type, language: mitraReminderInput.language, context: mitraReminderInput.context });
+const dispatchedText = composeMitraMessage({ recipientSalutation: resolveMemberSalutation(mitraReminderInput.recipient), seniorSalutation: resolveMemberSalutation(mitraReminderInput.senior), label: mitraReminderInput.label, type: mitraReminderInput.type, language: mitraReminderInput.language, context: mitraReminderInput.context });
+assert.equal(previewText, "Papa, evening walk ka time ho gaya.");
+assert.equal(dispatchedText, previewText, "Mitra preview must equal dispatched text");
+assert.equal(composeMitraAcknowledgement({ language: "Hinglish", outcome: "completed", recipientSalutation: mohitSalutation }), "Achha, theek hai Papa. Thank you.");
 for (const reply of ["Haan", "Ho gaya"]) assert.equal(interpretRoutineSignal({ signalType: "text", rawContent: reply, routineType: "Walk / activity", parentLabel: "Mohit" }).state, "CONFIRMED");
 for (const reply of ["Nahi", "Abhi nahi", "Thodi der mein", "maybe later"]) assert.equal(interpretRoutineSignal({ signalType: "text", rawContent: reply, routineType: "Walk / activity", parentLabel: "Mohit" }).state, "UNCONFIRMED");
 const tarla = readFileSync(new URL("../scripts/verify-w4-meta-tarla-live.mjs", import.meta.url), "utf8");
@@ -27,9 +39,12 @@ assert.match(tarlaInbound, /ingestCookSignal/);
 assert.match(tarla, /Palak nahi hai/);
 const betaRoute = readFileSync(new URL("../app/api/admin/beta/route.ts", import.meta.url), "utf8");
 assert.match(betaRoute, /body\.confirmation !== "SEND"/);
+assert.doesNotMatch(betaRoute, /recipientSalutation:\s*"Ji"/);
 assert.match(betaRoute, /executeProvenW4\(\{ recipient, agent: body\.agent, preparedToken: body\.preparedToken \}\)/);
 const executor = readFileSync(new URL("../lib/betaW4Execution.ts", import.meta.url), "utf8");
 assert.match(executor, /W4_META_TEST_RECIPIENT_E164: recipient\.e164/);
+assert.match(executor, /getBetaMitraRecipientContext/);
+assert.match(executor, /prepare_existing/);
 assert.match(executor, /verify-w4-meta-tarla-live\.mjs/);
 const exactPreview = "Namaste Priya. Aaj ka meal plan — exact prepared text.";
 assert.equal(

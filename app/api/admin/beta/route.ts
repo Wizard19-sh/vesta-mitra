@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { composeMitraMessage } from "../../../../lib/aeviaSetup";
 import { parseBetaRecipients, recipientView } from "../../../../lib/betaRecipients";
 import { executeProvenW4, prepareProvenW4 } from "../../../../lib/betaW4Execution";
 
@@ -28,12 +27,9 @@ export async function POST(request: NextRequest) {
     if ((body.agent !== "mitra" && body.agent !== "tarla") || (body.scenario !== "evening_walk" && body.scenario !== "tarla_palak_exception")) {
       return NextResponse.json({ error: "Choose a supported agent and scenario" }, { status: 400 });
     }
-    const mitraPreview = body.agent === "mitra"
-      ? composeMitraMessage({ recipientSalutation: "Ji", seniorSalutation: "Ji", label: "evening walk", type: "Walk / activity", language: "Hinglish", context: { agent: "mitra", audience: "senior", surface: "whatsapp", moment: "reminder" } })
-      : undefined;
     if (!body.preparedToken) {
       const prepared = await prepareProvenW4({ recipient, agent: body.agent });
-      const preview = mitraPreview ?? prepared.instruction;
+      const preview = prepared.instruction;
       if (!preview) throw new Error("Prepared outbound text was not generated");
       return NextResponse.json({ recipient: recipientView(recipient), preview, preparedToken: prepared.preparedToken, preparedPayloadId: prepared.preparedPayloadId ?? null, runId: prepared.runId ?? null, sendAllowed: true });
     }
@@ -41,7 +37,7 @@ export async function POST(request: NextRequest) {
     const result = await executeProvenW4({ recipient, agent: body.agent, preparedToken: body.preparedToken });
     return NextResponse.json({
       recipient: recipientView(recipient),
-      preview: result.instruction ?? mitraPreview,
+      preview: result.instruction,
       runId: result.runId ?? null,
       evidenceId: result.evidenceId ?? null,
       providerStatus: result.providerStatus ?? null,

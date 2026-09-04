@@ -18,6 +18,7 @@ import {
   householdMeasuresReconcile,
 } from "../lib/aeviaSetup.ts";
 import { shouldApplyDeliveryState } from "../lib/messageTransport.ts";
+import { resolveMemberSalutation } from "../lib/mitraSalutation.ts";
 
 const cases = [];
 function check(name, fn) {
@@ -60,6 +61,11 @@ check("Stop-medicine request is higher risk", () => {
 check("Mitra acknowledgement is relationship-neutral", () => {
   assert.equal(composeMitraAcknowledgement({ language: "English", outcome: "completed" }), "Got it, thank you.");
   assert.doesNotMatch(composeMitraAcknowledgement({ language: "Hinglish", outcome: "completed" }), /Sid|beta ne/i);
+});
+check("Mitra uses a confirmed salutation with a respectful display-name fallback", () => {
+  assert.equal(resolveMemberSalutation({ preferredSalutation: "papa", displayName: "Mohit" }), "Papa");
+  assert.equal(resolveMemberSalutation({ displayName: "Mohit" }), "Mohit Ji");
+  assert.equal(composeMitraAcknowledgement({ language: "Hinglish", outcome: "completed", recipientSalutation: "Papa" }), "Achha, theek hai Papa. Thank you.");
 });
 check("Mitra change acknowledgement uses family language", () => {
   const acknowledgement = composeMitraAcknowledgement({ language: "Hinglish", outcome: "change_pending" });
