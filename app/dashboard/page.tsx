@@ -63,7 +63,7 @@ export default function DashboardPage() {
     <main className={styles.shell}>
       <header className={styles.header}>
         <Link href="/" className={styles.brand}>Aevia</Link>
-        <nav><a href="#home">Home</a><a href="#needs-you">Needs you</a></nav>
+        <nav><Link href="/dashboard">Home</Link><Link href="/household">Household</Link><Link href="/mitra">Mitra</Link><Link href="/tarla">Tarla</Link></nav>
         <p>Closed beta</p>
       </header>
 
@@ -79,9 +79,9 @@ export default function DashboardPage() {
           {activeRoutines.slice(0, 3).map((routine) => {
             const member = routine.memberId ? memberMap.get(String(routine.memberId)) : undefined;
             const latest = data.latestInstances.find((item) => item.routineId === routine._id)?.instance;
-            return <article key={routine._id}><div className={styles.assistantIcon}>M</div><div><span>Mitra</span><h2>{member ? `${member.preferredSalutation || member.name}'s ${routine.label ?? "routine"}` : routine.label}</h2><p>{routine.nextOccurrenceAt ? formatTimestamp(routine.nextOccurrenceAt, data.household.timezone) : "Schedule saved"}</p>{routine.notes && <small>{routine.notes}</small>}</div><strong>{latest ? honestMitraState(latest.status, member?.preferredSalutation || member?.name) : "Scheduled"}</strong></article>;
+            return <article key={routine._id}><div className={styles.assistantIcon}>M</div><div><span>Mitra</span><h2>{member ? `${member.preferredSalutation || member.name}'s ${routine.label ?? "routine"}` : routine.label}</h2><p>{routine.nextOccurrenceAt ? formatTimestamp(routine.nextOccurrenceAt, data.household.timezone) : "Schedule saved"}</p>{routine.notes && <small>{routine.notes}</small>}<Link href="/mitra">Open Mitra</Link></div><strong>{latest ? honestMitraState(latest.status, member?.preferredSalutation || member?.name) : "Scheduled"}</strong></article>;
           })}
-          {latestPlan && <article><div className={[styles.assistantIcon, styles.tarlaIcon].join(" ")}>T</div><div><span>Tarla</span><h2>Meals for {formatDate(latestPlan.targetDate)}</h2><p>{latestPlan.mealSlots.join(" · ")}</p></div><strong>{latestPlan.status === "scheduled" || latestPlan.status === "approved" ? "Plan sent" : friendlyState(latestPlan.status)}</strong></article>}
+          {latestPlan && <article><div className={[styles.assistantIcon, styles.tarlaIcon].join(" ")}>T</div><div><span>Tarla</span><h2>Meals for {formatDate(latestPlan.targetDate)}</h2><p>{latestPlan.mealSlots.map(friendlyState).join(" · ")}</p><Link href="/tarla">Open Tarla</Link></div><strong>{latestPlan.status === "scheduled" || latestPlan.status === "approved" ? "Plan sent" : friendlyState(latestPlan.status)}</strong></article>}
           {!activeRoutines.length && !latestPlan && <article className={styles.addCard}><div className={styles.assistantIcon}>A</div><div><span>Aevia</span><h2>No active work yet</h2><p>Your setup is ready. Start from onboarding to add a first job.</p></div></article>}
         </div>
       </section>
@@ -100,7 +100,7 @@ export default function DashboardPage() {
       </section>
 
       <section className={styles.activity} aria-label="Specialist views">
-        <div className={styles.sectionTitle}><p>Mitra and Tarla views</p><Link href="/onboarding">Edit</Link></div>
+        <div className={styles.sectionTitle}><p>Mitra and Tarla views</p><Link href="/household">View household</Link></div>
         <div className={styles.activityList}>
           <article><span className={styles.mitraDot}>M</span><div><strong>Mitra</strong><p>{activeRoutines.length ? `${activeRoutines.length} routine route(s) active.` : "No routine route active yet."}</p></div></article>
           <article><span className={styles.tarlaDot}>T</span><div><strong>Tarla</strong><p>{latestPlan ? `Plan saved for ${formatDate(latestPlan.targetDate)}.` : "No meal plan route active yet."}</p></div></article>

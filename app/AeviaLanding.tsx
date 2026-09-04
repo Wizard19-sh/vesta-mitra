@@ -2,13 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { DM_Sans, Fraunces } from "next/font/google";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useProductAnalytics } from "../lib/productAnalytics";
 import styles from "./aevia.module.css";
-
-const inter = DM_Sans({ subsets: ["latin"], variable: "--font-aevia-inter" });
-const playfair = Fraunces({ subsets: ["latin"], variable: "--font-aevia-playfair" });
 
 const PROOFS = [
   {
@@ -95,7 +91,7 @@ export function AeviaLanding() {
   }
 
   return (
-    <main className={`${styles.siteShell} ${inter.variable} ${playfair.variable}`}>
+    <main className={styles.siteShell}>
       <header className={styles.nav}>
         <div className={styles.navInner}>
           <Wordmark />
@@ -287,7 +283,7 @@ export function AeviaLanding() {
           <h2>If the help gives you one more person to coordinate, it isn’t helping.</h2>
           <p>The whole point is to take coordination off your plate — not add another person between you and your household.</p>
           <p>That principle shapes Aevia: handle the routine follow-through, surface the exceptions, bring you in when your decision actually matters.</p>
-          <p>Early research insight · paraphrased, not a testimonial</p>
+          <p>Early research insight · paraphrased</p>
         </div>
       </section>
 

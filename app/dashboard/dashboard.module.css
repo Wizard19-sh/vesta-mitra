@@ -1,14 +1,14 @@
 .shell {
-  --cream: #f5efe4;
-  --paper: #fffdf8;
+  --cream: #fcf9f1;
+  --paper: #fffefb;
   --charcoal: #292a24;
   --muted: #696a61;
-  --sage: #414b38;
-  --terracotta: #b86343;
+  --sage: #2c4334;
+  --terracotta: #b77435;
   min-height: 100vh;
   color: var(--charcoal);
   background: var(--cream);
-  font-family: Inter, "Segoe UI", sans-serif;
+  font-family: var(--font-aevia-sans), "Segoe UI", sans-serif;
 }
 
 .loading,
@@ -60,7 +60,7 @@
   align-items: center;
   gap: 10px;
   width: fit-content;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-aevia-display), Georgia, serif;
   font-size: 1.3rem;
   font-weight: 700;
 }
@@ -105,7 +105,7 @@
 }
 
 .welcome h1 {
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: var(--font-aevia-display), Georgia, serif;
   font-size: clamp(2.7rem, 6vw, 5rem);
   font-weight: 500;
   line-height: 1;

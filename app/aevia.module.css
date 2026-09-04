@@ -1,4 +1,6 @@
 .siteShell {
+  --font-aevia-inter: var(--font-aevia-sans);
+  --font-aevia-playfair: var(--font-aevia-display);
   --cream: #faf9f5;
   --paper: #ffffff;
   --surface-low: #f4f4f0;

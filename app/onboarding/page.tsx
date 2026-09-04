@@ -22,6 +22,8 @@ type MemberDraft = {
   dietaryType: DietaryType;
   favouriteFoods: string;
   allergies: string;
+  restrictions: string;
+  mealsAtHome: string[];
   age: string;
   sex: "male" | "female";
   heightCm: string;
@@ -90,6 +92,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
       if (!validGoal(member.age)) nextErrors[`${member.clientKey}:age`] = "Enter an age in years.";
       if (!validGoal(member.heightCm)) nextErrors[`${member.clientKey}:heightCm`] = "Enter height in centimetres.";
       if (!validGoal(member.weightKg)) nextErrors[`${member.clientKey}:weightKg`] = "Enter weight in kilograms.";
+      if (!member.mealsAtHome.length) nextErrors[`${member.clientKey}:meals`] = "Choose at least one meal at home.";
     }
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length) return setError("Complete the highlighted fields before continuing.");
@@ -140,7 +143,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
         await upsertMemberProfile({
           ownerKey, householdId, memberId, dietaryType: member.dietaryType,
           favouriteFoods: toList(member.favouriteFoods), allergies: toList(member.allergies),
-          dislikedFoods: [], avoidedFoods: [], limitedFoods: [], mealsAtHome: allMeals,
+          dislikedFoods: [], avoidedFoods: toList(member.restrictions), limitedFoods: [], mealsAtHome: member.mealsAtHome,
           servingEquivalent: member.lifeStage === "child" ? 0.6 : 1, includedInPlanning: true,
         });
         await estimateMemberNutrition({ ownerKey, householdId, memberId, activityLevel: member.activityLevel, goal: "maintenance" });
@@ -172,9 +175,10 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
             : [{ label: "Daily visit", daysOfWeek: [0, 1, 2, 3, 4, 5, 6], arrivalTime: "09:00", timezone, mealSlots: allMeals }],
         });
       }
+      const selectedMeals = allMeals.filter((meal) => members.some((member) => member.mealsAtHome.includes(meal)));
       const plan = await createFullDayPlan({
         ownerKey, householdId, requestedByMemberId: memberIds[primaryIndex], eaterMemberIds: memberIds,
-        targetDate: new Date().toISOString().slice(0, 10), mealSlots: allMeals,
+        targetDate: new Date().toISOString().slice(0, 10), mealSlots: selectedMeals,
       });
       setCreated({ householdId, memberIds, dayPlanId: plan.dayPlanId });
       setStep("complete");
@@ -201,7 +205,7 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
         </form>
       </Panel>}
 
-      {step === "members" && <Panel eyebrow="Household members" title="Add everyone eating from this plan" supporting="Set food preferences, allergies, and daily nutrition goals for each person.">
+      {step === "members" && <Panel eyebrow="People & food" title="Who is eating at home?" supporting="Add each person once, then set the meals, food preferences and nutrition goal that apply to them.">
         <form className={styles.form} onSubmit={nextMembers}>
           <div className={styles.memberList}>{members.map((member, index) => <section className={styles.memberCard} key={member.clientKey}>
             <div className={styles.groupTitle}><span>Member {index + 1}</span>{members.length > 1 && <button type="button" onClick={() => removePerson(member.clientKey)}>Remove</button>}</div>
@@ -209,13 +213,14 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
               <Field label="Name" error={fieldErrors[`${member.clientKey}:name`]}><input value={member.name} onChange={(event) => updatePerson(member.clientKey, { name: event.target.value })} /></Field>
               <Field label="Relationship" error={fieldErrors[`${member.clientKey}:relationship`]}><input value={member.relationship} onChange={(event) => updatePerson(member.clientKey, { relationship: event.target.value })} placeholder="Self, partner, child" /></Field>
             </div>
-            <Field label="Diet goal"><select value={member.dietGoal} onChange={(event) => updatePerson(member.clientKey, { dietGoal: event.target.value as DietGoal })}><option value="maintain">maintain</option><option value="moderate_deficit">moderate_deficit</option><option value="stronger_deficit">stronger_deficit</option><option value="high_protein">high_protein</option></select></Field>
+            <section className={styles.nutritionSection}><div><h2>Meal approach</h2><p className={styles.helper}>Choose balanced meals or a specific nutrition goal. The daily estimate remains visible at review.</p></div><div className={styles.modeCards}><button type="button" aria-pressed={member.dietGoal === "maintain"} onClick={() => updatePerson(member.clientKey, { dietGoal: "maintain" })}><strong>Balanced meals</strong><span>A steady everyday plan based on this person’s details.</span></button><button type="button" aria-pressed={member.dietGoal !== "maintain"} onClick={() => updatePerson(member.clientKey, { dietGoal: member.dietGoal === "maintain" ? "high_protein" : member.dietGoal })}><strong>Nutrition goal</strong><span>Choose higher protein or a measured calorie reduction.</span></button></div>{member.dietGoal !== "maintain" && <Field label="Nutrition goal"><select value={member.dietGoal} onChange={(event) => updatePerson(member.clientKey, { dietGoal: event.target.value as DietGoal })}><option value="high_protein">Higher protein</option><option value="moderate_deficit">Moderate calorie reduction</option><option value="stronger_deficit">Stronger calorie reduction</option></select></Field>}</section>
             <div className={styles.twoColumns}>
               <Field label="Life stage"><select value={member.lifeStage} onChange={(event) => updatePerson(member.clientKey, { lifeStage: event.target.value as MemberDraft["lifeStage"] })}><option value="adult">Adult</option><option value="child">Child</option><option value="senior">Senior</option></select></Field>
               <Field label="Diet"><select value={member.dietaryType} onChange={(event) => updatePerson(member.clientKey, { dietaryType: event.target.value as DietaryType })}><option value="vegetarian">Vegetarian</option><option value="eggetarian">Eggetarian</option><option value="non_vegetarian">Non-vegetarian</option></select></Field>
             </div>
             <Field label="Favourite foods"><input value={member.favouriteFoods} onChange={(event) => updatePerson(member.clientKey, { favouriteFoods: event.target.value })} placeholder="For example, dal, bhindi, dosa" /></Field>
-            <Field label="Allergies"><input value={member.allergies} onChange={(event) => updatePerson(member.clientKey, { allergies: event.target.value })} placeholder="Leave blank if there are none" /></Field>
+            <section className={styles.restrictionBox}><p>Important food rules</p><Field label="Allergies"><input value={member.allergies} onChange={(event) => updatePerson(member.clientKey, { allergies: event.target.value })} placeholder="Leave blank if there are none" /></Field><Field label="Foods to avoid"><input value={member.restrictions} onChange={(event) => updatePerson(member.clientKey, { restrictions: event.target.value })} placeholder="For example, no mushrooms this week" /></Field></section>
+            <fieldset className={styles.dayPicker}><legend>Meals at home</legend><div>{allMeals.map((meal) => <button type="button" key={meal} aria-pressed={member.mealsAtHome.includes(meal)} onClick={() => updatePerson(member.clientKey, { mealsAtHome: member.mealsAtHome.includes(meal) ? member.mealsAtHome.filter((item) => item !== meal) : [...member.mealsAtHome, meal] })}>{titleCase(meal)}</button>)}</div>{fieldErrors[`${member.clientKey}:meals`] && <small className={styles.error}>{fieldErrors[`${member.clientKey}:meals`]}</small>}</fieldset>
             <div className={styles.threeColumns}>
               <Field label="Age in years" error={fieldErrors[`${member.clientKey}:age`]}><input min="1" type="number" value={member.age} onChange={(event) => updatePerson(member.clientKey, { age: event.target.value })} /></Field>
               <Field label="Height in cm" error={fieldErrors[`${member.clientKey}:heightCm`]}><input min="1" type="number" value={member.heightCm} onChange={(event) => updatePerson(member.clientKey, { heightCm: event.target.value })} /></Field>
@@ -252,23 +257,23 @@ function OnboardingFlow({ ownerKey }: { ownerKey: string }) {
 
       {step === "review" && <Panel eyebrow="Review" title="Check your household before creating the plan" supporting="Confirming creates the household, each member profile, and one full-day plan.">
         <div className={styles.reviewGrid}>
-          <section className={styles.reviewSection}><h2>{householdName}</h2><p>{timezone}</p></section>
-          <section className={styles.reviewSection}><h2>Tarla</h2><p>Primary user: {memberName(members, primaryKey)}</p><p>{cookSetup.mode === "hired" ? `${cookSetup.name || "Your cook"} will be set up on WhatsApp in ${cookSetup.language}.` : `Cooking person: ${memberName(members, cookKey)}`}</p></section>
-          <section className={styles.reviewSection}><h2>People and meal logic</h2><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {foodLabel(member.dietaryType)} · {goalLabel(member.dietGoal)}</span><small>Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Estimated daily target: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />{nutritionNote(member)}</small></li>; })}</ul></section>
+          <section className={styles.reviewSection}><header><h2>{householdName}</h2><button type="button" onClick={() => setStep("basics")}>Edit</button></header><p>{timezone}</p></section>
+          <section className={styles.reviewSection}><header><h2>Cooking setup</h2><button type="button" onClick={() => setStep("roles")}>Edit</button></header><p>Primary user: {memberName(members, primaryKey)}</p><p>{cookSetup.mode === "hired" ? `${cookSetup.name || "Your cook"} · hired cook · ${cookSetup.language} · ${cookSetup.frequency === "twice_daily" ? "twice a day" : "once a day"}` : `Family cooking person: ${memberName(members, cookKey)}`}</p></section>
+          <section className={styles.reviewSection}><header><h2>People and meal logic</h2><button type="button" onClick={() => setStep("members")}>Edit</button></header><ul>{members.map((member) => { const targets = computedTargets(member); return <li key={member.clientKey}><strong>{member.name}</strong><span>{member.relationship} · {foodLabel(member.dietaryType)} · {goalLabel(member.dietGoal)}</span><small>Meals: {member.mealsAtHome.map(titleCase).join(", ")}<br />Favourites: {member.favouriteFoods || "None added"}<br />Allergies: {member.allergies || "None reported"}<br />Foods to avoid: {member.restrictions || "None added"}<br />Estimated daily target: {targets.calorieTargetKcal} kcal, {targets.proteinTargetG} g protein<br />{nutritionNote(member)}</small></li>; })}</ul></section>
         </div>
         <FormError error={error} />
         <Actions back={() => setStep("roles")} busy={busy}><button className={styles.primaryButton} type="button" disabled={busy} onClick={confirm}>{busy ? "Creating your first plan…" : "Confirm and create my first day plan"}</button></Actions>
       </Panel>}
 
       {step === "complete" && created && <Panel eyebrow="Your first Tarla plan" title="Your household plan is ready" supporting="This is a starting point based on what you shared. No WhatsApp message was sent from this setup.">
-        {createdPlan === undefined ? <div className={styles.loadingCard}>Building your plan…</div> : <><div className={styles.planStack}>{createdPlan?.meals.map((meal) => <section className={styles.mealPlan} key={meal.join._id}><header><span>{meal.join.mealSlot}</span><h2>{meal.calculated.plan.templateName}</h2></header><p>{meal.calculated.plan.items.map((item) => item.recipeName).join(" · ")}</p></section>)}</div><div className={styles.inlineActions}><Link href="/dashboard">Go to household home</Link><button type="button" onClick={() => setStep("review")}>Review setup</button></div></>}
+        {createdPlan === undefined ? <div className={styles.loadingCard}>Building your plan…</div> : <><div className={styles.planStack}>{createdPlan?.meals.map((meal) => <section className={styles.mealPlan} key={meal.join._id}><header><span>{titleCase(meal.join.mealSlot)}</span><h2>{meal.calculated.plan.templateName}</h2></header><p>{meal.calculated.plan.items.map((item) => item.recipeName).join(" · ")}</p><div className={styles.portionBlock}><h3>Per-person portions</h3><div>{meal.calculated.plan.memberNutrition.map((portion) => <p key={portion.memberId}><span>{portion.memberName}</span><small>{portion.servingEquivalent} serving · {Math.round(portion.nutrition.caloriesKcal)} kcal</small></p>)}</div></div><div className={styles.kitchenSummary}><p>Kitchen total</p><div><strong>{meal.calculated.plan.totalServingEquivalents} servings</strong><span>{Math.round(meal.calculated.plan.totalNutrition.caloriesKcal)} kcal · {Math.round(meal.calculated.plan.totalNutrition.proteinG)} g protein</span></div></div></section>)}</div><div className={styles.inlineActions}><Link href="/dashboard">Go to household home</Link><button type="button" onClick={() => setStep("review")}>Review setup</button></div></>}
       </Panel>}
     </section>
   </main>;
 }
 
 function newMember(): MemberDraft {
-  return { clientKey: crypto.randomUUID(), name: "", relationship: "", lifeStage: "adult", dietaryType: "vegetarian", favouriteFoods: "", allergies: "", age: "", sex: "female", heightCm: "", weightKg: "", activityLevel: "moderately_active", dietGoal: "maintain" };
+  return { clientKey: crypto.randomUUID(), name: "", relationship: "", lifeStage: "adult", dietaryType: "vegetarian", favouriteFoods: "", allergies: "", restrictions: "", mealsAtHome: [...allMeals], age: "", sex: "female", heightCm: "", weightKg: "", activityLevel: "moderately_active", dietGoal: "maintain" };
 }
 
 function toList(value: string) { return value.split(",").map((item) => item.trim()).filter(Boolean); }
@@ -282,6 +287,7 @@ function computedTargets(member: MemberDraft) {
 function goalLabel(value: DietGoal) { return ({ maintain: "Balanced meals", moderate_deficit: "Moderate calorie reduction", stronger_deficit: "Stronger calorie reduction", high_protein: "Higher protein" } as const)[value]; }
 function foodLabel(value: DietaryType) { return value === "non_vegetarian" ? "Non-vegetarian" : value === "eggetarian" ? "Eggetarian" : "Vegetarian"; }
 function nutritionNote(member: MemberDraft) { return member.dietGoal === "high_protein" ? "Protein target uses body weight × 1.6." : "Calories use your age, height, weight and activity; protein uses age-group guidance."; }
+function titleCase(value: string) { return value.replaceAll("_", " ").replace(/^\w/, (letter) => letter.toUpperCase()); }
 function memberRole(member: MemberDraft, primaryKey: string, cookKey: string) { const parts = [member.clientKey === primaryKey ? "primary user" : "household member"]; if (member.clientKey === cookKey) parts.push("cook"); return parts.join(" and "); }
 function memberName(members: MemberDraft[], clientKey: string) { return members.find((member) => member.clientKey === clientKey)?.name || "Not chosen"; }
 function progress(step: Step) { return ({ basics: 20, members: 40, roles: 60, review: 80, complete: 100 } as const)[step]; }
