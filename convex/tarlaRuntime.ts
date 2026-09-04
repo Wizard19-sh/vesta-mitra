@@ -1,17 +1,17 @@
 import { v } from "convex/values";
-import { composeDayCookInstruction } from "../lib/tarlaMessages";
+import { exactPreparedTarlaInstruction } from "../lib/preparedTarlaPayload";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import { getMessageTransport } from "./messageTransport";
 import { ensureEvidenceRecord, recordExecutionEvent } from "./executionSupport";
-import { latestApprovedDayPlan, loadDayMeals } from "./tarlaDaySupport";
+import { latestApprovedDayPlan } from "./tarlaDaySupport";
+import { composeDayExecutionInstruction } from "./tarlaInstruction";
 import {
   addCompletedStep,
   addWaitingStep,
   completeLatestWaitingStep,
   completeRun,
-  loadPlanningContext,
   nextStepOrder,
 } from "./tarlaSupport";
 
@@ -67,14 +67,8 @@ export const triggerCookVisit = internalMutation({
     if (!latestDayPlan) {
       throw new Error("No approved full-day plan was available at send time");
     }
-    const dayMeals = await loadDayMeals(ctx, latestDayPlan._id);
-    const assignedMealSlots = execution.assignedMealSlots ?? visit.mealSlots;
-    const visitMeals = dayMeals
-      .filter((meal) => assignedMealSlots.includes(meal.join.mealSlot))
-      .map((meal) => meal.calculated);
-    if (visitMeals.length === 0) {
-      throw new Error("Latest day plan has no meals assigned to this visit");
-    }
+    const composed = await composeDayExecutionInstruction(ctx, execution, latestDayPlan);
+    const { assignedMealSlots, visitMeals } = composed;
     await addCompletedStep(
       ctx,
       run._id,
@@ -93,30 +87,18 @@ export const triggerCookVisit = internalMutation({
       `Loaded day-plan version ${latestDayPlan.version} with ${visitMeals.length} visit meals`,
       { component: "tarla", usageStatus: "not_applicable" },
     );
-    const eaterMemberIds = latestDayPlan.memberDailyNutrition.map(
-      (member) => member.memberId,
-    );
-    const planning = await loadPlanningContext(
-      ctx,
-      latestDayPlan.householdId,
-      eaterMemberIds,
-    );
-    const instruction = composeDayCookInstruction({
-      visitLabel: visit.label,
-      targetDate: latestDayPlan.targetDate,
-      meals: visitMeals,
-      memberNotes: planning.members
-        .filter((member) => member.cookNotes)
-        .map((member) => ({ memberName: member.name, note: member.cookNotes! })),
-      importantRestrictions: planning.members.flatMap((member) =>
-        member.allergies.map(
-          (allergy) => `${member.name}: no ${allergy.replaceAll("_", " ")}`,
-        ),
-      ),
-      cookName: cook.preferredSalutation ?? cook.name,
-      preferredLanguage: endpoint.preferredLanguage ?? cook.languagePreference,
-      relationshipType: cookState.relationshipType,
-    });
+    let instruction;
+    try {
+      instruction = exactPreparedTarlaInstruction({ preparedInstruction: execution.instruction, currentInstruction: composed.instruction });
+    } catch {
+      await ctx.db.patch(execution._id, { status: "failed", updatedAt: Date.now() });
+      await ctx.db.patch(run._id, {
+        status: "failed",
+        outputSummary: "Prepared Tarla payload became stale before dispatch",
+        updatedAt: Date.now(),
+      });
+      return null;
+    }
     await addCompletedStep(
       ctx,
       run._id,

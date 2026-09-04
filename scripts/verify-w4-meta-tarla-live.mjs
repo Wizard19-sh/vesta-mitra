@@ -30,14 +30,18 @@ const command = process.argv[2];
 const timezone = "Asia/Kolkata";
 
 if (command === "prepare") {
-  await prepare();
+  await prepare(false);
+} else if (command === "prepare_preview") {
+  await prepare(true);
+} else if (command === "send_prepared") {
+  await sendPrepared();
 } else if (command === "inspect") {
   await inspect();
 } else {
-  throw new Error("Use prepare or inspect");
+  throw new Error("Use prepare, prepare_preview, send_prepared, or inspect");
 }
 
-async function prepare() {
+async function prepare(previewOnly) {
   if (existsSync(statePath)) {
     throw new Error("A Tarla Meta live test is already recorded");
   }
@@ -177,7 +181,7 @@ async function prepare() {
     address: recipient,
     preferredLanguage: "Hindi",
     preferredMode: "text",
-    providerMetadata: { provider: "meta", ready: true },
+    providerMetadata: { provider: process.env.W4_TRANSPORT_PROVIDER ?? "meta", ready: true },
     active: true,
     consentStatus: "granted",
     verifiedAt: Date.now(),
@@ -268,6 +272,7 @@ async function prepare() {
     memberId: primaryId,
     cookStateId,
     rawContent: "Approved for the W4 Meta developer test.",
+    prepareOnly: previewOnly,
   });
   assert.equal(approval.executions.length, 1);
   const executionId = approval.executions[0].executionId;
@@ -288,12 +293,24 @@ async function prepare() {
     affectedMealSlot: palakMeal.join.mealSlot,
     scheduledFor: approval.executions[0].scheduledFor,
     nutritionBefore: revisedDetail.dayPlan.totalNutrition,
+    instruction: approval.executions[0].instruction,
     createdAt: Date.now(),
   };
   writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, {
     encoding: "utf8",
     flag: "wx",
   });
+
+  if (previewOnly) {
+    console.log(JSON.stringify({
+      phase: "prepared",
+      ownerKey,
+      preparedPayloadId: executionId,
+      runId: approval.executions[0].runId,
+      instruction: approval.executions[0].instruction,
+    }, null, 2));
+    return;
+  }
 
   const detail = await waitFor(
     () => getDayExecution(ownerKey, executionId),
@@ -465,6 +482,41 @@ function safeFutureLocalSchedule(minutes) {
     time: `${pad(parts.hour)}:${pad(parts.minute)}`,
     dayOfWeek: dayOfWeekForDate(targetDate),
   };
+}
+
+async function sendPrepared() {
+  const ownerKey = process.env.W4_META_TARLA_OWNER_KEY?.trim();
+  const executionId = process.env.W4_META_TARLA_EXECUTION_ID?.trim();
+  const state = ownerKey && executionId
+    ? { ownerKey, executionId }
+    : readPreparedState();
+  const sent = await mutate("tarlaDayPlanning:sendPreparedDayInstruction", {
+    ownerKey: state.ownerKey,
+    executionId: state.executionId,
+  });
+  assert.equal(sent.instruction, state.instruction ?? sent.instruction);
+  const detail = await waitFor(
+    () => getDayExecution(state.ownerKey, state.executionId),
+    (value) => value.transportMessages.some((message) =>
+      ["accepted", "sent", "delivered", "read", "failed"].includes(message.status)) || value.outboundMessages.length > 0,
+    5 * 60_000,
+    "the prepared Tarla instruction dispatch",
+  );
+  const provider = detail.transportMessages[0] ?? detail.outboundMessages[0];
+  assert.equal(detail.execution.instruction, sent.instruction);
+  console.log(JSON.stringify({
+    phase: "prepared_sent",
+    preparedPayloadId: state.executionId,
+    runId: sent.runId,
+    instruction: sent.instruction,
+    providerStatus: provider.status ?? "accepted",
+    providerMessageId: provider.providerMessageId,
+  }, null, 2));
+}
+
+function readPreparedState() {
+  if (!existsSync(statePath)) throw new Error("Prepared Tarla payload was not found");
+  return JSON.parse(readFileSync(statePath, "utf8"));
 }
 
 function scheduleLeadMinutes() {

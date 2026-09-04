@@ -12,6 +12,7 @@ import {
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation, query } from "./_generated/server";
+import { composeDayExecutionInstruction } from "./tarlaInstruction";
 import {
   activateDayPlanHistory,
   deactivateDaySeriesHistory,
@@ -339,6 +340,7 @@ export const approveDayPlan = mutation({
     memberId: v.id("members"),
     cookStateId: v.optional(v.id("tarlaCookStates")),
     rawContent: v.string(),
+    prepareOnly: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const dayPlan = await requireOwnedDayPlan(ctx, args.dayPlanId, args.ownerKey);
@@ -494,7 +496,7 @@ export const approveDayPlan = mutation({
         selectedCookReason: allocation.reason,
         recipientClass: cookRecipientClass(cookState.relationshipType),
         planVersion: dayPlan.version,
-        status: "scheduled",
+        status: args.prepareOnly ? "instruction_ready" : "scheduled",
         scheduledFor: timing.instructionAt,
         occurrenceKey,
         unavailableIngredientKeys: [],
@@ -503,14 +505,20 @@ export const approveDayPlan = mutation({
         createdAt: now,
         updatedAt: now,
       });
-      const scheduledJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
-        timing.instructionAt,
-        internal.tarlaRuntime.triggerCookVisit,
-        { executionId, scheduledFor: timing.instructionAt },
-      );
-      await ctx.db.patch(executionId, {
-        scheduledJobId: String(scheduledJobId),
-      });
+      let instruction;
+      if (args.prepareOnly) {
+        const execution = await ctx.db.get(executionId);
+        if (!execution) throw new Error("Prepared execution was not found");
+        instruction = (await composeDayExecutionInstruction(ctx, execution, dayPlan)).instruction;
+        await ctx.db.patch(executionId, { instruction, latestInstruction: instruction });
+      } else {
+        const scheduledJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
+          timing.instructionAt,
+          internal.tarlaRuntime.triggerCookVisit,
+          { executionId, scheduledFor: timing.instructionAt },
+        );
+        await ctx.db.patch(executionId, { scheduledJobId: String(scheduledJobId) });
+      }
       executions.push({
         executionId,
         cookVisitId: visit._id,
@@ -519,6 +527,7 @@ export const approveDayPlan = mutation({
         arrivalAt: timing.arrivalAt,
         reused: false,
         runId: visitRunPublicId,
+        instruction,
       });
     }
     await Promise.all(
@@ -562,6 +571,38 @@ export const approveDayPlan = mutation({
       seriesId: dayPlan.seriesId,
       executions,
     };
+  },
+});
+
+export const sendPreparedDayInstruction = mutation({
+  args: { ownerKey: v.string(), executionId: v.id("tarlaExecutions") },
+  handler: async (ctx, args) => {
+    const execution = await ctx.db.get(args.executionId);
+    if (!execution || execution.status !== "instruction_ready" || !execution.instruction || !execution.dayPlanId) {
+      throw new Error("Prepared Tarla payload is missing, stale, or already used");
+    }
+    const dayPlan = await requireOwnedDayPlan(ctx, execution.dayPlanId, args.ownerKey);
+    if (dayPlan.version !== execution.planVersion || dayPlan.status !== "scheduled") {
+      throw new Error("Prepared Tarla payload is stale; prepare again");
+    }
+    const current = await composeDayExecutionInstruction(ctx, execution, dayPlan);
+    if (current.instruction !== execution.instruction) {
+      throw new Error("Tarla plan or context changed; prepare again");
+    }
+    const scheduledFor = Date.now() + 1_000;
+    const scheduledJobId: Id<"_scheduled_functions"> = await ctx.scheduler.runAt(
+      scheduledFor,
+      internal.tarlaRuntime.triggerCookVisit,
+      { executionId: execution._id, scheduledFor },
+    );
+    await ctx.db.patch(execution._id, {
+      status: "scheduled",
+      scheduledFor,
+      scheduledJobId: String(scheduledJobId),
+      updatedAt: Date.now(),
+    });
+    const run = await ctx.db.get(execution.runId);
+    return { executionId: execution._id, runId: run?.runId, instruction: execution.instruction };
   },
 });
 

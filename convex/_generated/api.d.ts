@@ -25,6 +25,7 @@ import type * as productAnalytics from "../productAnalytics.js";
 import type * as tarlaDayPlanning from "../tarlaDayPlanning.js";
 import type * as tarlaDaySupport from "../tarlaDaySupport.js";
 import type * as tarlaInbound from "../tarlaInbound.js";
+import type * as tarlaInstruction from "../tarlaInstruction.js";
 import type * as tarlaPlanning from "../tarlaPlanning.js";
 import type * as tarlaProfiles from "../tarlaProfiles.js";
 import type * as tarlaRuntime from "../tarlaRuntime.js";
@@ -58,6 +59,7 @@ declare const fullApi: ApiFromModules<{
   tarlaDayPlanning: typeof tarlaDayPlanning;
   tarlaDaySupport: typeof tarlaDaySupport;
   tarlaInbound: typeof tarlaInbound;
+  tarlaInstruction: typeof tarlaInstruction;
   tarlaPlanning: typeof tarlaPlanning;
   tarlaProfiles: typeof tarlaProfiles;
   tarlaRuntime: typeof tarlaRuntime;
