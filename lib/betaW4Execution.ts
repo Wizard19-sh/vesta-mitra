@@ -1,7 +1,6 @@
 import "server-only";
 
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { spawn } from "node:child_process";
 import { ConvexHttpClient } from "convex/browser";
 import { makeFunctionReference } from "convex/server";
 import { composeMitraMessage, type AeviaLanguage } from "./aeviaSetup";
@@ -10,7 +9,7 @@ import { resolveMemberSalutation } from "./mitraSalutation";
 
 export type ProvenW4Result = {
   runKey: string;
-  stateFile: string;
+  stateFile?: string;
   runId?: string;
   evidenceId?: string;
   providerStatus?: string;
@@ -39,6 +38,19 @@ type BetaMitraContext = {
   language: AeviaLanguage;
 };
 
+type BetaTarlaPrepared = {
+  ownerKey: string;
+  executionId: string;
+  runId?: string;
+  instruction: string;
+};
+
+type DispatchDetail = {
+  run?: { runId?: string } | null;
+  transportMessages: Array<{ status?: string; providerMessageId?: string }>;
+  outboundMessages: Array<{ status?: string; providerMessageId?: string }>;
+};
+
 export async function prepareProvenW4(input: { recipient: BetaRecipient; agent: "mitra" | "tarla" }) {
   const runKey = randomUUID();
   if (input.agent === "mitra") {
@@ -55,22 +67,19 @@ export async function prepareProvenW4(input: { recipient: BetaRecipient; agent: 
       }),
     };
   }
-  const stateFile = `.beta-w4-tarla-${runKey}.json`;
-  const result = await runNode("scripts/verify-w4-meta-tarla-live.mjs", ["prepare_preview"], executionEnvironment(input.recipient, "tarla", stateFile));
-  const payload = requiredPayload(result.stdout);
+  const payload = await prepareTarlaFromConvex(input.recipient);
   return {
     runKey,
-    stateFile,
     preparedToken: sign({
       runKey,
       recipientId: input.recipient.id,
       agent: input.agent,
-      ownerKey: requiredText(payload.ownerKey, "prepared owner"),
-      executionId: requiredText(payload.preparedPayloadId, "prepared payload"),
+      ownerKey: payload.ownerKey,
+      executionId: payload.executionId,
     }),
-    preparedPayloadId: text(payload.preparedPayloadId),
-    runId: text(payload.runId),
-    instruction: text(payload.instruction),
+    preparedPayloadId: payload.executionId,
+    runId: payload.runId,
+    instruction: payload.instruction,
   };
 }
 
@@ -81,72 +90,31 @@ export async function executeProvenW4(input: {
 }): Promise<ProvenW4Result> {
   const prepared = verify(input.preparedToken, input.recipient.id, input.agent);
   const runKey = prepared.runKey;
-  const script = input.agent === "mitra"
-    ? "scripts/verify-w4-meta-live.mjs"
-    : "scripts/verify-w4-meta-tarla-live.mjs";
-  const stateFile = input.agent === "mitra"
-    ? `.beta-w4-mitra-${runKey}.json`
-    : `.beta-w4-tarla-${runKey}.json`;
   const mitraContext = input.agent === "mitra" ? await resolveBetaMitraContext(input.recipient) : undefined;
   const expectedMitraInstruction = mitraContext ? composeBetaMitraInstruction(mitraContext) : undefined;
   if (expectedMitraInstruction && prepared.previewDigest !== digest(expectedMitraInstruction)) {
     throw new Error("Prepared Mitra message is stale; prepare again");
   }
-  const command = input.agent === "mitra" ? "prepare_existing" : "send_prepared";
-  const result = await runNode(script, [command], executionEnvironment(input.recipient, input.agent, stateFile, prepared, mitraContext));
-  const payload = requiredPayload(result.stdout);
-  const instruction = text(payload.instruction) ?? expectedMitraInstruction;
+  const payload = input.agent === "mitra"
+    ? await executeMitraFromConvex(input.recipient, mitraContext!, expectedMitraInstruction!)
+    : await executeTarlaFromConvex(prepared);
+  const instruction = payload.instruction ?? expectedMitraInstruction;
   if (input.agent === "mitra" && (!instruction || prepared.previewDigest !== digest(instruction))) {
     throw new Error("Dispatched Mitra text did not match the prepared preview");
   }
   return {
     runKey,
-    stateFile,
-    runId: text(payload.runId),
-    evidenceId: text(payload.evidenceId),
-    providerStatus: text(payload.providerStatus),
-    providerMessageId: text(payload.providerMessageId),
+    runId: payload.runId,
+    evidenceId: payload.runId ? `EVD-RUN-${payload.runId}` : undefined,
+    providerStatus: payload.providerStatus,
+    providerMessageId: payload.providerMessageId,
     instruction,
-  };
-}
-
-function executionEnvironment(
-  recipient: BetaRecipient,
-  agent: "mitra" | "tarla",
-  stateFile: string,
-  prepared?: PreparedTokenPayload,
-  mitraContext?: BetaMitraContext,
-) {
-  return {
-    ...process.env,
-    W4_SKIP_LOCAL_STATE: "1",
-    W4_META_TEST_RECIPIENT_E164: recipient.e164,
-    ...(agent === "mitra"
-      ? {
-          W4_META_LIVE_STATE_PATH: stateFile,
-          W4_META_SCHEDULE_DELAY_MS: "1000",
-          ...(recipient.ownerKey ? { W4_META_EXISTING_OWNER_KEY: recipient.ownerKey } : {}),
-          ...(mitraContext ? { W4_META_EXISTING_CONTEXT_JSON: JSON.stringify(mitraContext) } : {}),
-        }
-        : {
-          W4_META_TARLA_STATE_PATH: stateFile,
-          W4_META_TARLA_LEAD_MINUTES: "4",
-          ...(recipient.ownerKey ? { W4_META_EXISTING_OWNER_KEY: recipient.ownerKey } : {}),
-          ...(prepared?.ownerKey && prepared.executionId
-            ? {
-                W4_META_TARLA_OWNER_KEY: prepared.ownerKey,
-                W4_META_TARLA_EXECUTION_ID: prepared.executionId,
-              }
-            : {}),
-        }),
   };
 }
 
 async function resolveBetaMitraContext(recipient: BetaRecipient): Promise<BetaMitraContext> {
   if (!recipient.ownerKey) throw new Error("Selected recipient is not linked to a shared household");
-  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL?.trim();
-  if (!convexUrl) throw new Error("Convex development URL is not configured");
-  const client = new ConvexHttpClient(convexUrl);
+  const client = convex();
   const context = await client.query(
     makeFunctionReference<"query">("m5:getBetaMitraRecipientContext"),
     {
@@ -158,6 +126,115 @@ async function resolveBetaMitraContext(recipient: BetaRecipient): Promise<BetaMi
   ) as BetaMitraContext | null;
   if (!context) throw new Error("Selected recipient has no ready, consented Mitra member record");
   return context;
+}
+
+function convex() {
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL?.trim();
+  if (!convexUrl) throw new Error("Convex development URL is not configured");
+  return new ConvexHttpClient(convexUrl);
+}
+
+async function prepareTarlaFromConvex(recipient: BetaRecipient): Promise<BetaTarlaPrepared> {
+  if (!recipient.ownerKey) throw new Error("Selected recipient is not linked to a shared household");
+  const client = convex();
+  const session = await client.query(
+    makeFunctionReference<"query">("m5:getSession"),
+    { ownerKey: recipient.ownerKey },
+  ) as {
+    setup?: { tarla?: { latestDayPlan?: { _id: string; status: string; approvedAt?: number }; cookingPeople?: Array<{
+      endpoint?: { _id: string; address: string };
+      member?: unknown;
+      cookState?: unknown;
+    }> } | null };
+  } | null;
+  const plan = session?.setup?.tarla?.latestDayPlan;
+  if (!plan || plan.status !== "scheduled" || !plan.approvedAt) {
+    throw new Error("Selected recipient has no approved/current Tarla plan");
+  }
+  const cookingPerson = session.setup?.tarla?.cookingPeople?.find(
+    (item) => item.endpoint?.address === recipient.e164 && item.member && item.cookState,
+  );
+  if (!cookingPerson?.endpoint) {
+    throw new Error("Selected recipient is not linked to the approved plan's cooking person");
+  }
+  const detail = await client.query(
+    makeFunctionReference<"query">("tarlaDayPlanning:getDayPlan"),
+    { ownerKey: recipient.ownerKey, dayPlanId: plan._id },
+  ) as { executions: Array<{ _id: string; communicationEndpointId: string; status: string; instruction?: string }> };
+  const execution = detail.executions.find(
+    (item) => item.communicationEndpointId === cookingPerson.endpoint!._id && item.status === "instruction_ready" && item.instruction,
+  );
+  if (!execution?.instruction) throw new Error("Approved plan has no prepared instruction for this cooking person");
+  const executionDetail = await client.query(
+    makeFunctionReference<"query">("tarlaDayPlanning:getDayExecution"),
+    { ownerKey: recipient.ownerKey, executionId: execution._id },
+  ) as DispatchDetail;
+  return { ownerKey: recipient.ownerKey, executionId: execution._id, runId: executionDetail.run?.runId, instruction: execution.instruction };
+}
+
+async function executeTarlaFromConvex(prepared: PreparedTokenPayload) {
+  const client = convex();
+  const sent = await client.mutation(
+    makeFunctionReference<"mutation">("tarlaDayPlanning:sendPreparedDayInstruction"),
+    { ownerKey: prepared.ownerKey!, executionId: prepared.executionId! },
+  ) as { runId?: string; instruction: string };
+  const detail = await waitFor(
+    () => client.query(makeFunctionReference<"query">("tarlaDayPlanning:getDayExecution"), {
+      ownerKey: prepared.ownerKey!, executionId: prepared.executionId!,
+    }) as Promise<DispatchDetail>,
+    (value) => value.transportMessages.some((message) => ["accepted", "sent", "delivered", "read", "failed"].includes(message.status ?? "")) || value.outboundMessages.length > 0,
+    "the prepared Tarla instruction dispatch",
+  );
+  const provider = detail.transportMessages[0] ?? detail.outboundMessages[0];
+  return { runId: sent.runId, instruction: sent.instruction, providerStatus: provider?.status ?? "accepted", providerMessageId: provider?.providerMessageId };
+}
+
+async function executeMitraFromConvex(recipient: BetaRecipient, context: BetaMitraContext, instruction: string) {
+  if (!recipient.ownerKey) throw new Error("Selected recipient is not linked to a shared household");
+  const client = convex();
+  const routine = await client.mutation(
+    makeFunctionReference<"mutation">("mitraRoutines:createScheduledRoutine"),
+    {
+      ownerKey: recipient.ownerKey,
+      householdId: context.householdId,
+      memberId: context.memberId,
+      recipientMemberId: context.memberId,
+      recipientAudience: "senior",
+      parentId: context.parentId,
+      communicationEndpointId: context.endpointId,
+      type: "Walk / activity",
+      label: "evening walk",
+      timing: { kind: "once_scheduled", timezone: context.timezone, scheduledAt: Date.now() + 1_000 },
+      responseWindowMs: 10 * 60 * 1_000,
+    },
+  ) as { routineId: string };
+  const detail = await waitFor(
+    async () => {
+      const instances = await client.query(makeFunctionReference<"query">("mitraRoutines:listRoutineInstances"), {
+        ownerKey: recipient.ownerKey!, routineId: routine.routineId,
+      }) as Array<{ _id: string }>;
+      return instances[0]
+        ? client.query(makeFunctionReference<"query">("mitraRoutines:getRoutineInstance"), {
+            ownerKey: recipient.ownerKey!, checkInId: instances[0]._id,
+          }) as Promise<DispatchDetail>
+        : null;
+    },
+    (value): value is DispatchDetail => Boolean(value && (value.transportMessages.some((message) => ["accepted", "sent", "delivered", "read", "failed"].includes(message.status ?? "")) || value.outboundMessages.length > 0)),
+    "the prepared Mitra reminder dispatch",
+  );
+  if (!detail) throw new Error("Mitra reminder did not create a routine instance");
+  const provider = detail.transportMessages[0] ?? detail.outboundMessages[0];
+  return { runId: detail.run?.runId, instruction, providerStatus: provider?.status ?? "accepted", providerMessageId: provider?.providerMessageId };
+}
+
+async function waitFor<T>(read: () => Promise<T>, ready: (value: T) => boolean, description: string) {
+  const deadline = Date.now() + 5 * 60_000;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (ready(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(`Timed out waiting for ${description}`);
 }
 
 function composeBetaMitraInstruction(context: BetaMitraContext) {
@@ -177,12 +254,6 @@ function composeBetaMitraInstruction(context: BetaMitraContext) {
 
 function digest(value: string) {
   return createHmac("sha256", "aevia-beta-preview-v1").update(value).digest("base64url");
-}
-
-function requiredPayload(output: string) {
-  const payload = lastJson(output);
-  if (!payload) throw new Error("The proven W4 runner returned no structured result");
-  return payload;
 }
 
 function sign(payload: PreparedTokenPayload) {
@@ -214,41 +285,4 @@ function verify(token: string, recipientId: string, agent: string) {
     throw new Error("Prepared Mitra preview reference is missing; prepare again");
   }
   return payload;
-}
-
-function runNode(script: string, args: string[], env: NodeJS.ProcessEnv) {
-  return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    const child = spawn(process.execPath, [script, ...args], {
-      cwd: process.cwd(), env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true,
-    });
-    let stdout = ""; let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += String(chunk); });
-    child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-    child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(safeFailure(stderr, code))));
-  });
-}
-
-function lastJson(output: string): Record<string, unknown> | undefined {
-  const start = output.indexOf("{");
-  if (start < 0) return undefined;
-  try {
-    const value: unknown = JSON.parse(output.slice(start));
-    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-  } catch { return undefined; }
-}
-
-function safeFailure(stderr: string, code: number | null) {
-  const text = stderr.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").trim();
-  return text ? `Proven W4 runner failed (${code ?? "unknown"}): ${text.slice(-500)}` : `Proven W4 runner failed (${code ?? "unknown"})`;
-}
-
-function text(value: unknown) {
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function requiredText(value: unknown, label: string) {
-  const result = text(value);
-  if (!result) throw new Error(`The ${label} reference was not returned`);
-  return result;
 }

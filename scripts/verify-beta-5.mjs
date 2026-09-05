@@ -42,11 +42,14 @@ assert.match(betaRoute, /body\.confirmation !== "SEND"/);
 assert.doesNotMatch(betaRoute, /recipientSalutation:\s*"Ji"/);
 assert.match(betaRoute, /executeProvenW4\(\{ recipient, agent: body\.agent, preparedToken: body\.preparedToken \}\)/);
 const executor = readFileSync(new URL("../lib/betaW4Execution.ts", import.meta.url), "utf8");
-assert.match(executor, /W4_META_TEST_RECIPIENT_E164: recipient\.e164/);
 assert.match(executor, /getBetaMitraRecipientContext/);
-assert.match(executor, /prepare_existing/);
-assert.match(executor, /verify-w4-meta-tarla-live\.mjs/);
-assert.match(executor, /W4_META_EXISTING_OWNER_KEY: recipient\.ownerKey/);
+assert.doesNotMatch(
+  executor,
+  /runNode\(|scripts\/verify-w4-meta-(?:tarla-)?live\.mjs/,
+  "The deployed admin runner must not invoke local verifier scripts",
+);
+assert.match(executor, /tarlaDayPlanning:sendPreparedDayInstruction/);
+assert.match(executor, /mitraRoutines:createScheduledRoutine/);
 assert.match(tarla, /prepareExistingPlan/);
 assert.match(tarla, /Selected recipient has no approved\/current Tarla plan/);
 const onboarding = readFileSync(new URL("../app/onboarding/page.tsx", import.meta.url), "utf8");
