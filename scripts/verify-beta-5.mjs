@@ -50,6 +50,7 @@ assert.doesNotMatch(
 );
 assert.match(executor, /tarlaDayPlanning:sendPreparedDayInstruction/);
 assert.match(executor, /mitraRoutines:createScheduledRoutine/);
+assert.match(executor, /betaAdmin:prepareApprovedTarlaInstruction/);
 assert.match(tarla, /prepareExistingPlan/);
 assert.match(tarla, /Selected recipient has no approved\/current Tarla plan/);
 const onboarding = readFileSync(new URL("../app/onboarding/page.tsx", import.meta.url), "utf8");
@@ -64,6 +65,10 @@ assert.match(dayPlanning, /Test-admin plan approval is not configured or authori
 const betaAdmin = readFileSync(new URL("../convex/betaAdmin.ts", import.meta.url), "utf8");
 assert.match(betaAdmin, /provider:\s*"meta"/);
 assert.match(betaAdmin, /ready:\s*true/);
+assert.match(betaAdmin, /approvalSource === "household_user"/);
+assert.match(betaAdmin, /developmentMessages\.length === 0/);
+assert.match(betaAdmin, /providerMessages\.length !== 0/);
+assert.match(betaAdmin, /status:\s*"instruction_ready"/);
 const betaAdminMeta = readFileSync(new URL("../convex/betaAdminMeta.ts", import.meta.url), "utf8");
 assert.match(betaAdminMeta, /fields=id/);
 assert.doesNotMatch(betaAdminMeta, /\/messages/);

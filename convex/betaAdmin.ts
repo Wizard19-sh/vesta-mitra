@@ -1,5 +1,163 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
+import { composeDayExecutionInstruction } from "./tarlaInstruction";
+
+export const prepareApprovedTarlaInstruction = mutation({
+  args: {
+    adminKey: v.string(),
+    ownerKey: v.string(),
+    recipientE164: v.string(),
+  },
+  handler: async (ctx, args) => {
+    requireBetaAdmin(args.adminKey);
+
+    const household = await ctx.db
+      .query("households")
+      .withIndex("by_owner", (q) => q.eq("ownerKey", args.ownerKey))
+      .order("desc")
+      .first();
+    if (!household) throw new Error("Selected recipient household was not found");
+
+    const plans = await ctx.db
+      .query("tarlaDayPlans")
+      .withIndex("by_household", (q) => q.eq("householdId", household._id))
+      .order("desc")
+      .collect();
+    const plan = plans.find(
+      (item) =>
+        item.approvedAt &&
+        item.approvalSource === "household_user" &&
+        ["scheduled", "executing"].includes(item.status),
+    );
+    if (!plan) throw new Error("Selected recipient has no user-approved current Tarla plan");
+
+    const matchingEndpoints = await ctx.db
+      .query("communicationEndpoints")
+      .withIndex("by_channel_and_address", (q) =>
+        q.eq("channel", "whatsapp").eq("address", validE164(args.recipientE164)),
+      )
+      .collect();
+    const endpoint = matchingEndpoints.find(
+      (item) => item.householdId === household._id,
+    );
+    if (
+      !endpoint ||
+      !endpoint.active ||
+      endpoint.consentStatus !== "granted"
+    ) {
+      throw new Error("Selected recipient is not linked to the approved household");
+    }
+
+    const executions = await ctx.db
+      .query("tarlaExecutions")
+      .withIndex("by_day_plan", (q) => q.eq("dayPlanId", plan._id))
+      .collect();
+    const existingPrepared = executions.find(
+      (item) =>
+        item.communicationEndpointId === endpoint._id &&
+        item.status === "instruction_ready" &&
+        item.instruction,
+    );
+    if (existingPrepared?.instruction) {
+      const run = await ctx.db.get(existingPrepared.runId);
+      return {
+        dayPlanId: plan._id,
+        executionId: existingPrepared._id,
+        runId: run?.runId,
+        instruction: existingPrepared.instruction,
+      };
+    }
+
+    const source = executions.find(
+      (item) =>
+        item.communicationEndpointId === endpoint._id &&
+        item.status === "waiting" &&
+        item.instruction,
+    );
+    if (!source?.instruction) {
+      throw new Error("The user-approved plan has no reusable development instruction");
+    }
+
+    const [developmentMessages, providerMessages] = await Promise.all([
+      ctx.db
+        .query("devTransportMessages")
+        .withIndex("by_tarla_execution", (q) => q.eq("tarlaExecutionId", source._id))
+        .collect(),
+      ctx.db
+        .query("transportMessages")
+        .withIndex("by_tarla_execution", (q) => q.eq("tarlaExecutionId", source._id))
+        .collect(),
+    ]);
+    if (developmentMessages.length === 0 || providerMessages.length !== 0) {
+      throw new Error("The approved instruction is not eligible for a development-to-Meta prepare");
+    }
+
+    const occurrenceKey = `${source.occurrenceKey ?? source._id}:meta-beta`;
+    const existingRecovery = await ctx.db
+      .query("tarlaExecutions")
+      .withIndex("by_occurrence_key", (q) => q.eq("occurrenceKey", occurrenceKey))
+      .unique();
+    if (existingRecovery?.status === "instruction_ready" && existingRecovery.instruction) {
+      const run = await ctx.db.get(existingRecovery.runId);
+      return {
+        dayPlanId: plan._id,
+        executionId: existingRecovery._id,
+        runId: run?.runId,
+        instruction: existingRecovery.instruction,
+      };
+    }
+    if (existingRecovery) throw new Error("A live prepared instruction already exists");
+
+    const now = Date.now();
+    const runPublicId = crypto.randomUUID();
+    const runId = await ctx.db.insert("agentRuns", {
+      runId: runPublicId,
+      agent: "tarla",
+      householdId: household._id,
+      taskType: "scheduled_cook_visit_instruction",
+      status: "queued",
+      inputSummary: "Prepare the user-approved instruction after its development-only dispatch",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const executionId = await ctx.db.insert("tarlaExecutions", {
+      householdId: source.householdId,
+      dayPlanId: plan._id,
+      dayPlanSeriesId: source.dayPlanSeriesId,
+      cookVisitId: source.cookVisitId,
+      runId,
+      cookMemberId: source.cookMemberId,
+      communicationEndpointId: endpoint._id,
+      assignedMealSlots: source.assignedMealSlots,
+      selectedCookReason: source.selectedCookReason,
+      recipientClass: source.recipientClass,
+      planVersion: plan.version,
+      status: "instruction_ready",
+      occurrenceKey,
+      unavailableIngredientKeys: source.unavailableIngredientKeys,
+      lockedMealSlots: source.lockedMealSlots,
+      userEscalationRequired: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const execution = await ctx.db.get(executionId);
+    if (!execution) throw new Error("Prepared instruction could not be created");
+    const composed = await composeDayExecutionInstruction(ctx, execution, plan);
+    if (composed.instruction !== source.instruction) {
+      throw new Error("Approved plan context changed; prepare is blocked");
+    }
+    await ctx.db.patch(executionId, {
+      instruction: composed.instruction,
+      latestInstruction: composed.instruction,
+    });
+    return {
+      dayPlanId: plan._id,
+      executionId,
+      runId: runPublicId,
+      instruction: composed.instruction,
+    };
+  },
+});
 
 export const linkConsentedCookRecipient = mutation({
   args: {

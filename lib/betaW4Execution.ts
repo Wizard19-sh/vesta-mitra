@@ -137,39 +137,26 @@ function convex() {
 async function prepareTarlaFromConvex(recipient: BetaRecipient): Promise<BetaTarlaPrepared> {
   if (!recipient.ownerKey) throw new Error("Selected recipient is not linked to a shared household");
   const client = convex();
-  const session = await client.query(
-    makeFunctionReference<"query">("m5:getSession"),
-    { ownerKey: recipient.ownerKey },
-  ) as {
-    setup?: { tarla?: { latestDayPlan?: { _id: string; status: string; approvedAt?: number }; cookingPeople?: Array<{
-      endpoint?: { _id: string; address: string };
-      member?: unknown;
-      cookState?: unknown;
-    }> } | null };
-  } | null;
-  const plan = session?.setup?.tarla?.latestDayPlan;
-  if (!plan || plan.status !== "scheduled" || !plan.approvedAt) {
-    throw new Error("Selected recipient has no approved/current Tarla plan");
-  }
-  const cookingPerson = session.setup?.tarla?.cookingPeople?.find(
-    (item) => item.endpoint?.address === recipient.e164 && item.member && item.cookState,
-  );
-  if (!cookingPerson?.endpoint) {
-    throw new Error("Selected recipient is not linked to the approved plan's cooking person");
-  }
-  const detail = await client.query(
-    makeFunctionReference<"query">("tarlaDayPlanning:getDayPlan"),
-    { ownerKey: recipient.ownerKey, dayPlanId: plan._id },
-  ) as { executions: Array<{ _id: string; communicationEndpointId: string; status: string; instruction?: string }> };
-  const execution = detail.executions.find(
-    (item) => item.communicationEndpointId === cookingPerson.endpoint!._id && item.status === "instruction_ready" && item.instruction,
-  );
-  if (!execution?.instruction) throw new Error("Approved plan has no prepared instruction for this cooking person");
-  const executionDetail = await client.query(
-    makeFunctionReference<"query">("tarlaDayPlanning:getDayExecution"),
-    { ownerKey: recipient.ownerKey, executionId: execution._id },
-  ) as DispatchDetail;
-  return { ownerKey: recipient.ownerKey, executionId: execution._id, runId: executionDetail.run?.runId, instruction: execution.instruction };
+  const prepared = await client.mutation(
+    makeFunctionReference<"mutation">("betaAdmin:prepareApprovedTarlaInstruction"),
+    {
+      adminKey: requiredAdminKey(),
+      ownerKey: recipient.ownerKey,
+      recipientE164: recipient.e164,
+    },
+  ) as { executionId: string; runId?: string; instruction: string };
+  return {
+    ownerKey: recipient.ownerKey,
+    executionId: prepared.executionId,
+    runId: prepared.runId,
+    instruction: prepared.instruction,
+  };
+}
+
+function requiredAdminKey() {
+  const key = process.env.BETA_ADMIN_KEY?.trim();
+  if (!key) throw new Error("Beta admin key is not configured");
+  return key;
 }
 
 async function executeTarlaFromConvex(prepared: PreparedTokenPayload) {

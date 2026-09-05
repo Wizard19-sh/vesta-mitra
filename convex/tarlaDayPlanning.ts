@@ -632,7 +632,10 @@ export const sendPreparedDayInstruction = mutation({
       throw new Error("Prepared Tarla payload is missing, stale, or already used");
     }
     const dayPlan = await requireOwnedDayPlan(ctx, execution.dayPlanId, args.ownerKey);
-    if (dayPlan.version !== execution.planVersion || dayPlan.status !== "scheduled") {
+    if (
+      dayPlan.version !== execution.planVersion ||
+      !["scheduled", "executing"].includes(dayPlan.status)
+    ) {
       throw new Error("Prepared Tarla payload is stale; prepare again");
     }
     const current = await composeDayExecutionInstruction(ctx, execution, dayPlan);
