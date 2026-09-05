@@ -1,31 +1,31 @@
 "use client";
 
-import { getOrCreateAnonymousId } from "./aeviaSession";
+import posthog from "posthog-js";
 
 const key = process.env.NEXT_PUBLIC_POSTHOG_KEY?.trim();
-const host = (
-  process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim() ?? "https://us.i.posthog.com"
-).replace(/\/$/, "");
+const host = process.env.NEXT_PUBLIC_POSTHOG_HOST?.trim() ?? "https://us.i.posthog.com";
 
 type PostHogEvent = "$pageview" | "onboarding_started" | "onboarding_completed";
+
+let initialized = false;
+
+function initializePostHog() {
+  if (initialized) return true;
+  if (typeof window === "undefined" || !key || !host) return false;
+
+  posthog.init(key, {
+    api_host: host,
+    autocapture: false,
+    capture_pageview: false,
+  });
+  initialized = true;
+  return true;
+}
 
 export function capturePostHog(
   event: PostHogEvent,
   properties: Record<string, string> = {},
 ) {
-  if (!key || typeof window === "undefined") return;
-
-  const distinctId = getOrCreateAnonymousId();
-  if (!distinctId) return;
-
-  void fetch(`${host}/capture/`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: key,
-      event,
-      properties: { $distinct_id: distinctId, ...properties },
-    }),
-    keepalive: true,
-  }).catch(() => undefined);
+  if (!initializePostHog()) return;
+  posthog.capture(event, properties);
 }
