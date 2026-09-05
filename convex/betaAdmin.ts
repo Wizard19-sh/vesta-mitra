@@ -2,6 +2,70 @@ import { v } from "convex/values";
 import { mutation } from "./_generated/server";
 import { composeDayExecutionInstruction } from "./tarlaInstruction";
 
+export const resolveCanonicalInboundContact = mutation({
+  args: {
+    adminKey: v.string(),
+    ownerKey: v.string(),
+    signalId: v.id("inboundSignals"),
+    memberId: v.id("members"),
+    endpointId: v.id("communicationEndpoints"),
+  },
+  handler: async (ctx, args) => {
+    requireBetaAdmin(args.adminKey);
+
+    const [signal, member, endpoint] = await Promise.all([
+      ctx.db.get(args.signalId),
+      ctx.db.get(args.memberId),
+      ctx.db.get(args.endpointId),
+    ]);
+    if (!signal || !member || !endpoint) {
+      throw new Error("Inbound signal or canonical contact was not found");
+    }
+
+    const household = await ctx.db.get(member.householdId);
+    if (!household || household.ownerKey !== args.ownerKey) {
+      throw new Error("Canonical member was not found for this owner");
+    }
+    if (
+      member.active === false ||
+      endpoint.householdId !== household._id ||
+      endpoint.memberId !== member._id ||
+      endpoint.channel !== "whatsapp" ||
+      endpoint.active === false ||
+      endpoint.consentStatus !== "granted"
+    ) {
+      throw new Error("Canonical WhatsApp contact is not active and consented");
+    }
+    if (
+      signal.channel !== "whatsapp" ||
+      signal.senderAddress !== endpoint.address ||
+      signal.metadata?.provider !== "meta" ||
+      signal.metadata.webhookValidatedAt === undefined
+    ) {
+      throw new Error("Inbound signal does not match the validated Meta contact");
+    }
+    if (signal.matched || signal.runId || signal.checkInId) {
+      throw new Error("Inbound signal is already attached to a runtime task");
+    }
+
+    await ctx.db.patch(signal._id, {
+      householdId: household._id,
+      memberId: member._id,
+      communicationEndpointId: endpoint._id,
+      agent: "vesta",
+    });
+
+    return {
+      signalId: signal._id,
+      householdId: household._id,
+      memberId: member._id,
+      endpointId: endpoint._id,
+      webhookValidated: true,
+      matchedToTask: false,
+    };
+  },
+});
+
 export const prepareApprovedTarlaInstruction = mutation({
   args: {
     adminKey: v.string(),
