@@ -51,6 +51,7 @@ import {
   previousOnboardingStep,
 } from "../../lib/onboardingFlowState";
 import { useProductAnalytics } from "../../lib/productAnalytics";
+import { capturePostHog } from "../../lib/posthog";
 import { resolveMemberSalutation } from "../../lib/mitraSalutation";
 import { SessionUnavailable } from "../SessionUnavailable";
 import { AeviaLogo } from "../AeviaLogo";
@@ -145,6 +146,7 @@ function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; exist
     if (started.current) return;
     started.current = true;
     void track("onboarding_started", { route: "/onboarding" });
+    capturePostHog("onboarding_started", { route: "/onboarding" });
   }, [track]);
 
   const steps: Step[] = [...onboardingSteps(choice)];
@@ -310,6 +312,10 @@ function OnboardingFlow({ ownerKey, existingSession }: { ownerKey: string; exist
       const saved = await saveSetup({ ownerKey, householdId: sessionIds.householdId, setup: payload });
       const savedMap = new Map(saved.memberIds.map((item) => [item.clientKey, item.memberId]));
       await track("first_task_configured", { householdId: sessionIds.householdId, route: "/onboarding", agent: choice });
+      capturePostHog("onboarding_completed", {
+        route: "/onboarding",
+        agent: choice,
+      });
       if ((choice === "tarla" || choice === "both") && !existingSession?.setup.tarla?.latestDayPlan) {
         const firstCook = saved.cookingPeople[0];
         if (!firstCook) throw new Error("A cooking person is required for the first plan");

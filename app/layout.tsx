@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Newsreader, Plus_Jakarta_Sans } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
+import { PostHogPageView } from "./PostHogPageView";
 import "./globals.css";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-aevia-sans" });
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${jakarta.variable} ${newsreader.variable}`}>
       <body>
+        <PostHogPageView />
         <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
     </html>
