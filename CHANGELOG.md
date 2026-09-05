@@ -404,6 +404,12 @@ Verified without a WhatsApp dispatch:
 - TypeScript and production build: passed
 - production-like admin Prepare and the canonical Production runner: passed with the explicit SEND gate intact
 
+### Pari approval-state correction
+
+On 2026-09-05, diagnosis confirmed that Pari's live approval had persisted correctly as a `household_user` approval, but the beta recipient registry still referenced an older Pari household. The registry now resolves Pari's actual live-browser household and plan without recreating or administratively approving either record.
+
+The already-approved instruction had previously run only through the development transport. A guarded beta preparation mutation now preserves that historical run, requires the original household-user approval, rejects any execution that already has a real provider message, and creates one idempotent `instruction_ready` payload for the existing Meta send gate. Production Prepare returned the exact stored Vaibhav instruction; no WhatsApp message was sent.
+
 ## Explicit remaining work
 
 ### NEXT — closed-beta product readiness

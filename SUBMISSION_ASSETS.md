@@ -5,16 +5,18 @@
 - Canonical public URL: https://helloaevia.vercel.app
 - Canonical admin beta runner: https://helloaevia.vercel.app/admin/beta
 - Canonical-domain validation: passed on 2026-09-05; root and the protected beta-admin runner resolve to the current `vesta-mitra-product` Production deployment.
-- Latest Vercel deployment artifact: https://vesta-mitra-product-93tp3y7kl-wizard-e2d1.vercel.app
-- Latest deployment admin artifact: https://vesta-mitra-product-93tp3y7kl-wizard-e2d1.vercel.app/admin/beta
-- Implementation commit: `1ea76e6`
+- Latest Vercel deployment artifact: https://vesta-mitra-product-ag30tp1jr-wizard-e2d1.vercel.app
+- Latest deployment admin artifact: https://vesta-mitra-product-ag30tp1jr-wizard-e2d1.vercel.app/admin/beta
+- Implementation commit: `0001a62`
 - Submission-assets lineage: `8b901ea618cb78ddecf798661cd8137caf3c8384`
 - Meta readiness check commit: `de79885`
 - Branch: `m5-aevia-flow-and-m0-stability`
 - Convex target: `dev:grand-goshawk-952`
-- Pari household: `jx7b9qmphkehcery61md517a5d8dr545`
-- Pari plan: `nd7e8phqtbmwh97cx0gwdcwfbs8dr75t` (awaiting user approval)
-- Deployment timestamp: 2026-09-05 05:55 IST
+- Pari household: `jx76yambxwk64rtj3f88a6zvr98dsac8`
+- Pari plan: `nd77jtw3ypj6g4afqpt6pam16h8dvac2` (version 1; approved by Pari through the live generated-plan screen)
+- Pari approval timestamp/source: 2026-09-05 05:31:46.921 IST; `household_user`; actor `Pari`
+- Prepared Vaibhav execution: `m170jc97e82tr9sj30a9tgqnp98dvajw`; run `066742c8-2d95-4565-b59d-cc15b1223e57`; no provider dispatch yet
+- Deployment timestamp: 2026-09-05 06:09 IST
 - Public access: verified; the canonical root and protected admin API returned HTTP 200 without Vercel authentication
 - WhatsApp sends in this phase: 0
 
@@ -36,7 +38,7 @@
 - Mitra prepare: passed on the live Production deployment; exact preview was `Papa, evening walk ka time ho gaya.` with five configured recipients loaded as masked numbers only
 - SEND gate: passed; confirmation remained explicit and was not used
 - Mobile: passed at 390px with no horizontal overflow on landing, onboarding, dashboard, Household, Mitra, or Tarla
-- First Vaibhav Tarla send blocker: Pari's current plan `nd7e8phqtbmwh97cx0gwdcwfbs8dr75t` awaits Pari's own approval before a current instruction can be prepared. The explicit SEND confirmation remains required after that prepare.
+- First Vaibhav Tarla send blocker: none in the approval, registry, preparation, or Meta-auth checks. The explicit owner-controlled SEND confirmation remains required.
 
 ## Current verification summary
 
@@ -47,7 +49,8 @@
 - TypeScript, lint, and production build: passed
 - Production-like local admin prepare: passed with `CONVEX_DEPLOYMENT=production-like-runtime`; exact Mitra preview prepared without invoking a local CLI verifier
 - Production admin prepare: passed on `https://helloaevia.vercel.app`; five masked recipients loaded and the explicit SEND gate was returned. No dispatch occurred.
-- Current blocker: Pari's latest real Tarla plan is awaiting user approval; no live send was attempted
+- Pari approval-state correction: the registry previously pointed to an older Pari household and plan. It now resolves the real live-browser household and preserves Pari's original `household_user` approval without creating or admin-approving another plan.
+- Live Vaibhav Prepare: passed on `https://helloaevia.vercel.app`; the exact 5 September instruction was returned with masked recipient, prepared payload ID, run ID, and explicit SEND gate. No live send was attempted.
 
 ## Canonical Tarla evidence
 
