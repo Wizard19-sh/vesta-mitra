@@ -51,6 +51,10 @@ Aevia is currently a shared hub, not yet a fully dynamic manager/orchestrator.
 
 Verified on 2026-09-05 without sending WhatsApp: the existing authenticated Meta app was subscribed to the already configured Convex-development WABA after a Mitra request failed with Meta code `131005`. The sender, recipients, token, scopes, webhook URLs, provider, Convex deployment, and application code were unchanged. A fresh Mohit preview remained exact and behind the explicit SEND gate.
 
+### New live Household 1 contact resolution
+
+Verified on 2026-09-05 without sending WhatsApp: the newest live-created Household 1 replaced older Phase A and earlier household mappings for Mohit and Krishna. Their existing validated Meta inbounds now resolve to the new shared-member endpoints, while historical records remain preserved. The user-approved Tarla plan is retained unchanged; Krishna prepare fails closed because its scheduled execution does not yet contain an exact composed instruction. Convex also contains no Ivvan member in this saved household, so the missing record is reported rather than invented.
+
 ### M0 — Stabilise Aevia
 
 Implemented locally on 2026-09-03:
