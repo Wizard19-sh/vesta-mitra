@@ -484,3 +484,4 @@ The already-approved instruction had previously run only through the development
   Missing-ingredient substitution and ordinary acknowledgement behavior remain
   unchanged.
 - Deployed commit `50896cbf9c8324c7d42600f42d73d20d21967b62` to Vercel Production at `https://helloaevia.vercel.app` on 2026-09-05 08:19:37 IST. Convex development was synchronized, both public routes returned HTTP 200, Meta authentication returned HTTP 200, and Krishna's existing conversation window remained open. No WhatsApp message was sent.
+- Generalized Tarla's deterministic shopping-plus-acceptance interpretation from a phrase-specific rule to a bounded English/Hinglish intent class. It requires a known explicit ingredient or one unambiguous referenced ingredient from the active instruction, a shopping verb, and acceptance language. Negated shopping, unknown products, ambiguous context, ordinary acknowledgements, and missing-ingredient substitution remain fail-closed or unchanged.

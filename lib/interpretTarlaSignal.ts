@@ -21,6 +21,10 @@ export type TarlaCookSignalInterpretation =
 export function interpretTarlaCookSignal(input: {
   signalType: "text" | "reaction" | "acknowledgement";
   rawContent: string;
+  activeIngredients?: Array<{
+    ingredientKey: string;
+    ingredientName: string;
+  }>;
 }): TarlaCookSignalInterpretation {
   const raw = input.rawContent.trim();
   const lower = raw.toLocaleLowerCase();
@@ -37,12 +41,25 @@ export function interpretTarlaCookSignal(input: {
     };
   }
 
-  const ingredient = findIngredientInText(raw);
+  const ingredient =
+    findIngredientInText(raw) ??
+    resolveSingleContextIngredient(lower, input.activeIngredients);
+  const pendingPassiveOrder =
+    /\b(?:need|needs|have|has)\s+to\s+be\s+ordered\b/i.test(lower);
   const shoppingNeeded =
-    /\b(order\s+(?:karna|karni)\s+padega|mangwana\s+padega|order\s+kar\s+lena)\b/i.test(
+    (/\b(order|buy|purchase|mangwana|mangana|mangwa|kharidna|need\s+to\s+get|needs\s+to\s+get|have\s+to\s+get|has\s+to\s+get)\b/i.test(
+      lower,
+    ) || pendingPassiveOrder) &&
+    (!/\b(ordered|bought|purchased)\b/i.test(lower) || pendingPassiveOrder) &&
+    !/\b(?:do not|don't|dont|not|nahi|nahin|mat)\s+(?:need\s+to\s+)?(?:order|buy|purchase|get|mang\w*|kharid\w*)\b/i.test(
+      lower,
+    ) &&
+    !/\b(?:order|buy|purchase|mang\w*|kharid\w*)\s+(?:nahi|nahin|mat)\b/i.test(
       lower,
     );
-  const accepted = /\b(no problem|theek hai|thik hai)\b/i.test(lower);
+  const accepted =
+    /\b(no problem|ok|okay|fine|theek hai|thik hai)\b/i.test(lower) &&
+    !/\b(?:not|isn't|is not|nahi|nahin)\s+(?:ok|okay|fine)\b/i.test(lower);
   if (ingredient && shoppingNeeded && accepted) {
     return {
       kind: "shopping_needed_acknowledged",
@@ -83,5 +100,29 @@ export function interpretTarlaCookSignal(input: {
   return {
     kind: "unrelated",
     summary: "Cook message was preserved but did not resolve this meal execution.",
+  };
+}
+
+function resolveSingleContextIngredient(
+  lower: string,
+  activeIngredients:
+    | Array<{ ingredientKey: string; ingredientName: string }>
+    | undefined,
+) {
+  if (!/\b(it|this|yeh|ye|isko|usko|item|ingredient)\b/i.test(lower)) {
+    return undefined;
+  }
+  const unique = [
+    ...new Map(
+      (activeIngredients ?? []).map((ingredient) => [
+        ingredient.ingredientKey,
+        ingredient,
+      ]),
+    ).values(),
+  ];
+  if (unique.length !== 1) return undefined;
+  return {
+    key: unique[0].ingredientKey,
+    name: unique[0].ingredientName,
   };
 }

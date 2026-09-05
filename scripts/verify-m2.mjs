@@ -157,11 +157,10 @@ check("Ordinary cook acknowledgement is not meal completion", () => {
   assert.match(source.tarlaInterpreter, /kind: "acknowledgement"/);
   assert.doesNotMatch(source.tarlaInterpreter, /meal.*verified|cooking.*complete/i);
 });
-check("Tarla recognizes ordering plus acceptance", () => {
+check("Tarla recognizes real-user-derived shopping plus acceptance replies", () => {
   for (const rawContent of [
     "Tofu order karna padega. No problem.",
-    "Tofu mangwana padega, theek hai.",
-    "No problem, tofu order kar lena.",
+    "Remember that I have to order tofu later. Abhi ke liye is ok",
   ]) {
     const result = interpretTarlaCookSignal({
       signalType: "text",
@@ -170,6 +169,32 @@ check("Tarla recognizes ordering plus acceptance", () => {
     assert.equal(result.kind, "shopping_needed_acknowledged");
     assert.equal(result.ingredientKey, "tofu");
   }
+});
+check("Tarla recognizes bounded English and Hinglish shopping variants", () => {
+  for (const rawContent of [
+    "Tofu mangwana padega, theek hai",
+    "Tofu baad mein order kar lena. Abhi sab okay hai.",
+    "Need to buy tofu later, no problem.",
+    "Okay, tofu order karna hoga.",
+  ]) {
+    const result = interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent,
+    });
+    assert.equal(result.kind, "shopping_needed_acknowledged");
+    assert.equal(result.ingredientKey, "tofu");
+  }
+});
+check("Tarla may use one unambiguous active ingredient", () => {
+  const result = interpretTarlaCookSignal({
+    signalType: "text",
+    rawContent: "It needs to be ordered later, okay.",
+    activeIngredients: [
+      { ingredientKey: "tofu", ingredientName: "Tofu" },
+    ],
+  });
+  assert.equal(result.kind, "shopping_needed_acknowledged");
+  assert.equal(result.ingredientKey, "tofu");
 });
 check("Plain Tarla acknowledgement remains an acknowledgement", () => {
   assert.equal(
@@ -187,6 +212,49 @@ check("Palak unavailable remains on the substitution path", () => {
       rawContent: "Palak nahi hai",
     }).kind,
     "missing_ingredient",
+  );
+});
+check("Genuinely unrelated Tarla text remains unresolved", () => {
+  assert.equal(
+    interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent: "Thanks, see you.",
+    }).kind,
+    "unrelated",
+  );
+});
+check("Ambiguous active ingredients fail closed", () => {
+  assert.equal(
+    interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent: "It needs to be ordered later, okay.",
+      activeIngredients: [
+        { ingredientKey: "tofu", ingredientName: "Tofu" },
+        { ingredientKey: "paneer", ingredientName: "Paneer" },
+      ],
+    }).kind,
+    "unrelated",
+  );
+});
+check("Unknown products do not inherit an active meal ingredient", () => {
+  assert.equal(
+    interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent: "Soap order karna hai, okay.",
+      activeIngredients: [
+        { ingredientKey: "tofu", ingredientName: "Tofu" },
+      ],
+    }).kind,
+    "unrelated",
+  );
+});
+check("Negated shopping intent does not add an item", () => {
+  assert.equal(
+    interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent: "Tofu order nahi karna, okay.",
+    }).kind,
+    "unrelated",
   );
 });
 check("Family-cook shopping acknowledgement is brief and truthful", () => {

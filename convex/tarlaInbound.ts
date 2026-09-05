@@ -1,7 +1,11 @@
 import { v } from "convex/values";
 import { interpretTarlaCookSignal } from "../lib/interpretTarlaSignal";
 import { summarizeDayMeals } from "../lib/tarlaDayPlanner";
-import { planMeal, type CalculatedMealPlan } from "../lib/tarlaPlanner";
+import {
+  planMeal,
+  type CalculatedMealPlan,
+  type CalculatedPlanItem,
+} from "../lib/tarlaPlanner";
 import type { CalculatedDayPlan } from "../lib/tarlaDayPlanner";
 import {
   composeCookInstruction,
@@ -215,9 +219,11 @@ export const ingestCookSignal = mutation({
       "Persist the exact source signal before interpretation",
       "Stored the unchanged cook signal",
     );
+    const currentItems = await getCalculatedPlanItems(ctx, plan._id);
     const interpretation = interpretTarlaCookSignal({
       signalType: args.signalType,
       rawContent: args.rawContent,
+      activeIngredients: activeIngredientsFromItems(currentItems),
     });
     await addCompletedStep(
       ctx,
@@ -258,7 +264,6 @@ export const ingestCookSignal = mutation({
     }
 
     if (interpretation.kind === "missing_ingredient") {
-      const currentItems = await getCalculatedPlanItems(ctx, plan._id);
       const affectedItem = currentItems.find((item) =>
         item.ingredients.some(
           (ingredient) => ingredient.ingredientKey === interpretation.ingredientKey,
@@ -930,9 +935,17 @@ async function handleDayExecutionSignal(
     "Persist the exact source signal before interpretation",
     "Stored the unchanged cook signal",
   );
+  const currentMeals = await loadDayMeals(ctx, dayPlan._id);
+  const visitMealSlots = new Set(
+    normalized.execution.assignedMealSlots ?? visit.mealSlots,
+  );
+  const activeVisitItems = currentMeals
+    .filter((meal) => visitMealSlots.has(meal.join.mealSlot))
+    .flatMap((meal) => meal.calculated.plan.items);
   const interpretation = interpretTarlaCookSignal({
     signalType: args.signalType,
     rawContent: args.rawContent,
+    activeIngredients: activeIngredientsFromItems(activeVisitItems),
   });
   await addCompletedStep(
     ctx,
@@ -977,11 +990,7 @@ async function handleDayExecutionSignal(
       interpretation.ingredientKey,
       interpretation.ingredientName,
     );
-    const currentMeals = await loadDayMeals(ctx, dayPlan._id);
     const lockedMealSlots = new Set(normalized.execution.lockedMealSlots ?? []);
-    const visitMealSlots = new Set(
-      normalized.execution.assignedMealSlots ?? visit.mealSlots,
-    );
     const affectedMeals = currentMeals.filter(
       (meal) =>
         visitMealSlots.has(meal.join.mealSlot) &&
@@ -1526,6 +1535,22 @@ async function markIngredientUnavailable(
       updatedAt: now,
     });
   }
+}
+
+function activeIngredientsFromItems(items: CalculatedPlanItem[]) {
+  return [
+    ...new Map(
+      items
+        .flatMap((item) => item.ingredients)
+        .map((ingredient) => [
+          ingredient.ingredientKey,
+          {
+            ingredientKey: ingredient.ingredientKey,
+            ingredientName: ingredient.ingredientName,
+          },
+        ]),
+    ).values(),
+  ];
 }
 
 async function markIngredientShoppingNeeded(
