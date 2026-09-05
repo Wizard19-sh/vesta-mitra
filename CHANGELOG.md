@@ -483,3 +483,4 @@ The already-approved instruction had previously run only through the development
   ingredient-ordering need with acceptance of the current instruction.
   Missing-ingredient substitution and ordinary acknowledgement behavior remain
   unchanged.
+- Deployed commit `50896cbf9c8324c7d42600f42d73d20d21967b62` to Vercel Production at `https://helloaevia.vercel.app` on 2026-09-05 08:19:37 IST. Convex development was synchronized, both public routes returned HTTP 200, Meta authentication returned HTTP 200, and Krishna's existing conversation window remained open. No WhatsApp message was sent.
