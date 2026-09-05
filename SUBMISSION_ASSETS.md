@@ -2,6 +2,16 @@
 
 > **Final submission freeze — 2026-09-05:** This is the local submission index for the evidence already recorded below. No fresh test, deployment, WhatsApp send, commit, or push was performed while freezing it. Git commands remain unavailable; the worktree branch was recovered directly from its metadata as `m5-aevia-flow-and-m0-stability`. Any later submission action must be recorded separately.
 
+## Final submission artifact index — 2026-09-05
+
+- `artifacts/submission/Posthog 1.png` — PostHog starter dashboard showing 4 active users, 4 sessions, and 17 page views in the displayed periods.
+- `artifacts/submission/Posthog 2.png` — PostHog web analytics: 4 visitors, 17 page views, 4 sessions, 4m43s session duration, 25% bounce rate, and `/onboarding` with 2 visitors / 5 views. These are traffic metrics, not signup counts.
+- `artifacts/submission/user 2.png` — controlled Mitra WhatsApp reminder and reply screenshot.
+- `artifacts/submission/user 1.png` — controlled W4 Tarla instruction and missing-ingredient substitution screenshot.
+- `artifacts/submission/user 1.1.png` — customer-facing Tarla instruction and revised-plan screenshot after a missing-ingredient reply.
+- `artifacts/submission/k User 3 _ failed.jpeg` — Krishna Tarla instruction and mixed procurement/acceptance reply screenshot; the recorded interpretation remained unresolved.
+- `artifacts/submission/K user 3.jpeg` — retained blank/failed screenshot capture from the Krishna evidence set.
+
 ## Live public beta
 
 - Canonical public URL: https://helloaevia.vercel.app
