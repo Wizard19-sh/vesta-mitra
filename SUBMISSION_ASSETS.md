@@ -1,5 +1,7 @@
 # Submission assets
 
+> **Final submission freeze — 2026-09-05:** This is the local submission index for the evidence already recorded below. No fresh test, deployment, WhatsApp send, commit, or push was performed while freezing it. Git commands remain unavailable; the worktree branch was recovered directly from its metadata as `m5-aevia-flow-and-m0-stability`. Any later submission action must be recorded separately.
+
 ## Live public beta
 
 - Canonical public URL: https://helloaevia.vercel.app
@@ -65,6 +67,7 @@
 - Krishna mixed-intent production deployment: implementation commit `50896cbf9c8324c7d42600f42d73d20d21967b62`; canonical URL `https://helloaevia.vercel.app`; deployment artifact `https://vesta-mitra-product-izxrcy1he-wizard-e2d1.vercel.app`; deployed 2026-09-05 08:19:37 IST. Root and `/admin/beta` passed live HTTP checks, five masked recipients loaded without raw-number fields, Meta authentication passed with HTTP 200, and Krishna's conversation window remained open. WhatsApp sends during deployment verification: 0.
 - Real-user-feedback-driven Tarla improvement: two unscripted Krishna replies—`Tofu order karna padega. No problem.` and `Remember that I have to order tofu later. Abhi ke liye is ok`—revealed brittleness in the initial deterministic rule. The proposed generalized rule keeps both historical interpretations unchanged, adds bounded intent-class regressions, and remains pending live confirmation. No new run or WhatsApp message was created.
 - Generalized mixed-intent production deployment: implementation commit `bfc511ce12d4d93e0d82ba2afb689be94916f195`; canonical URL `https://helloaevia.vercel.app`; deployment artifact `https://vesta-mitra-product-retwvrmo6-wizard-e2d1.vercel.app`; deployed 2026-09-05 08:31:19 IST. Root, Meta authentication, canonical Krishna mapping, and the open validated conversation window passed read-only checks. Both historical failed interpretations remain unchanged. WhatsApp sends during deployment verification: 0.
+- Third unscripted Krishna language case: `Tofu order karna hai. Yaad rakhna` was received through the validated Meta webhook and linked to the existing canonical execution/run. It contained explicit tofu shopping/reminder language but no meal-plan acceptance, so no combined acknowledgement, shopping update, Sid contact, or intervention occurred. The execution remained unresolved and waiting. The three verbatim real-cook replies are retained together in `EVIDENCE.md` as product-learning evidence.
 - Krishna readiness: blocked because Household 1 has no Krishna shared-member/family-cook record and no current 5 September approved plan for Krishna; no plan or member was invented.
 
 ## Canonical Tarla evidence

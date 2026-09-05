@@ -2,6 +2,12 @@
 
 This changelog records product-direction changes and verified development milestones. It is evidence-led: a checkpoint means the named implementation passed in development, not that it is broadly launched.
 
+## Final submission freeze — 2026-09-05
+
+The documentation set was frozen locally without product-code changes, a fresh test run, deployment, WhatsApp send, commit, or push. Git commands were unavailable during the freeze. The checked-out branch was recovered by reading the worktree's `.git` pointer and its `HEAD` directly: `m5-aevia-flow-and-m0-stability`.
+
+The submission record is [README.md](./README.md), [EVIDENCE.md](./EVIDENCE.md), and [SUBMISSION_ASSETS.md](./SUBMISSION_ASSETS.md). Earlier entries remain historical evidence and retain their original limits; this entry does not increase any rubric claim.
+
 The visible consumer brand is now **Aevia**. Internal Vesta and `vesta-mitra` identifiers remain unchanged during Build Week.
 
 ## Product evolution

@@ -1,5 +1,7 @@
 # Aevia GrowthX Evidence Plan
 
+> **Final submission freeze — 2026-09-05:** This document is the frozen evidence record for the files currently present in this worktree. No new verification, deployment, WhatsApp send, commit, or push was performed to create this freeze. The worktree branch was recovered without invoking Git by reading `.git` and its referenced `HEAD`: `m5-aevia-flow-and-m0-stability`. Treat every claim below according to its stated surface, cohort, timestamp, and limitation; do not upgrade a claim from this documentation edit.
+
 ## Canonical scoring reference
 
 This document uses the **GrowthX Build Week rubric v2.2.0** supplied directly from the GrowthX Build Week Scoring page / Build Week agent.
@@ -643,4 +645,6 @@ Use one record per artifact or proof:
   - Real user feedback 2: `Remember that I have to order tofu later. Abhi ke liye is ok` → preserved correctly but interpreted as unrelated, exposing that the first rule was too phrase-specific.
   - Generalized deterministic intent-class fix → recognizes a known ingredient plus bounded shopping language and acceptance language in either clause order. Missing-item substitution, plain acknowledgement, unrelated text, and ambiguous-item behavior remain protected by regression coverage.
   - Live confirmation: pending. Neither historical inbound interpretation was rewritten or reprocessed; no new run or WhatsApp message was created.
+  - Real user feedback 3: `Tofu order karna hai. Yaad rakhna` → preserved and mapped to the same canonical Krishna execution. The message expressed a known tofu shopping/reminder intent but did not explicitly accept the current meal instruction, so the combined shopping-plus-acceptance rule correctly did not fire. No shopping item, acknowledgement, Sid contact, or intervention was created; the run remained waiting and unresolved.
+  - Verbatim unscripted sequence retained for product learning: (1) `Tofu order karna padega. No problem.` (2) `Remember that I have to order tofu later. Abhi ke liye is ok` (3) `Tofu order karna hai. Yaad rakhna`.
 - Generalized mixed-intent deployment: commit `bfc511ce12d4d93e0d82ba2afb689be94916f195` is live at `https://helloaevia.vercel.app`; deployment artifact `https://vesta-mitra-product-retwvrmo6-wizard-e2d1.vercel.app`. Convex development was synchronized, the public root returned HTTP 200, Meta authentication passed with HTTP 200, canonical Krishna member/contact mapping was confirmed, and the latest validated inbound kept the conversation window open. Both earlier `unrelated` interpretations remain unchanged as historical evidence. No WhatsApp message was sent; final fresh inbound confirmation is pending.
