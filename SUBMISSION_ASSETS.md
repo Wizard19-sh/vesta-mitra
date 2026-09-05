@@ -5,9 +5,9 @@
 - Canonical public URL: https://helloaevia.vercel.app
 - Canonical admin beta runner: https://helloaevia.vercel.app/admin/beta
 - Canonical-domain validation: passed on 2026-09-05; root and the protected beta-admin runner resolve to the current `vesta-mitra-product` Production deployment.
-- Latest Vercel deployment artifact: https://vesta-mitra-product-ag30tp1jr-wizard-e2d1.vercel.app
-- Latest deployment admin artifact: https://vesta-mitra-product-ag30tp1jr-wizard-e2d1.vercel.app/admin/beta
-- Implementation commit: `0001a62`
+- Latest Vercel deployment artifact: https://vesta-mitra-product-f1n1ycts9-wizard-e2d1.vercel.app
+- Latest deployment admin artifact: https://vesta-mitra-product-f1n1ycts9-wizard-e2d1.vercel.app/admin/beta
+- Implementation commit: `390b2f8`
 - Submission-assets lineage: `8b901ea618cb78ddecf798661cd8137caf3c8384`
 - Meta readiness check commit: `de79885`
 - Branch: `m5-aevia-flow-and-m0-stability`
@@ -17,7 +17,7 @@
 - Pari approval timestamp/source: 2026-09-05 05:31:46.921 IST; `household_user`; actor `Pari`
 - Vaibhav execution: `m170jc97e82tr9sj30a9tgqnp98dvajw`; run `066742c8-2d95-4565-b59d-cc15b1223e57`; evidence `EVD-RUN-066742c8-2d95-4565-b59d-cc15b1223e57`
 - Vaibhav delivery result: Meta accepted at 2026-09-05 06:20:47.330 IST, then reported delivery failure at 2026-09-05 06:20:48.000 IST; no inbound reply; no retry yet
-- Deployment timestamp: 2026-09-05 06:09 IST
+- Deployment timestamp: 2026-09-05 06:48 IST
 - Public access: verified; the canonical root and protected admin API returned HTTP 200 without Vercel authentication
 - WhatsApp sends in this phase: 1 initial attempt; 0 retries
 
@@ -52,8 +52,8 @@
 - Production admin prepare: passed on `https://helloaevia.vercel.app`; five masked recipients loaded and the explicit SEND gate was returned. No dispatch occurred.
 - Pari approval-state correction: the registry previously pointed to an older Pari household and plan. It now resolves the real live-browser household and preserves Pari's original `household_user` approval without creating or admin-approving another plan.
 - Live Vaibhav Prepare: passed on `https://helloaevia.vercel.app`; the exact 5 September instruction was returned with masked recipient, prepared payload ID, run ID, and explicit SEND gate. No live send was attempted.
-- Household 1 inbound readiness: real Meta “Hi” messages from Mohit and Krishna passed signature validation on 2026-09-05 and opened their provider conversation windows, but both persisted as unmatched Aevia inbound records. No outbound message was sent in this readiness check.
-- Mohit readiness: masked recipient and exact `Papa, evening walk ka time ho gaya.` preview passed with Meta authentication and explicit SEND gate; SEND remains blocked on correcting the duplicate Household 1 contact mapping.
+- Household 1 inbound readiness: real Meta “Hi” messages from Mohit and Krishna passed signature validation on 2026-09-05 and opened their provider conversation windows. Mohit's 06:30:02 IST inbound now resolves to his canonical Household 1 member/contact; Krishna remains unmatched. No outbound message was sent in this readiness check.
+- Mohit readiness: five historical duplicate endpoints were disabled without deleting their records or evidence. The single canonical endpoint is active and Meta-ready, the shared-member salutation is `Papa`, masked recipient `+********7764`, and exact preview `Papa, evening walk ka time ho gaya.` passed with Meta authentication HTTP 200 and the explicit SEND gate closed. Ready for an owner-approved send; no send occurred during this correction.
 - Krishna readiness: blocked because Household 1 has no Krishna shared-member/family-cook record and no current 5 September approved plan for Krishna; no plan or member was invented.
 
 ## Canonical Tarla evidence
