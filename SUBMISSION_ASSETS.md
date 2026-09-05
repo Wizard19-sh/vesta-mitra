@@ -52,6 +52,9 @@
 - Production admin prepare: passed on `https://helloaevia.vercel.app`; five masked recipients loaded and the explicit SEND gate was returned. No dispatch occurred.
 - Pari approval-state correction: the registry previously pointed to an older Pari household and plan. It now resolves the real live-browser household and preserves Pari's original `household_user` approval without creating or admin-approving another plan.
 - Live Vaibhav Prepare: passed on `https://helloaevia.vercel.app`; the exact 5 September instruction was returned with masked recipient, prepared payload ID, run ID, and explicit SEND gate. No live send was attempted.
+- Household 1 inbound readiness: real Meta “Hi” messages from Mohit and Krishna passed signature validation on 2026-09-05 and opened their provider conversation windows, but both persisted as unmatched Aevia inbound records. No outbound message was sent in this readiness check.
+- Mohit readiness: masked recipient and exact `Papa, evening walk ka time ho gaya.` preview passed with Meta authentication and explicit SEND gate; SEND remains blocked on correcting the duplicate Household 1 contact mapping.
+- Krishna readiness: blocked because Household 1 has no Krishna shared-member/family-cook record and no current 5 September approved plan for Krishna; no plan or member was invented.
 
 ## Canonical Tarla evidence
 
