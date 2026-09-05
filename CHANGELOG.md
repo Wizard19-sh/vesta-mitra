@@ -47,6 +47,10 @@ Aevia is currently a shared hub, not yet a fully dynamic manager/orchestrator.
 
 ## Verified milestones
 
+### Meta development WABA subscription correction
+
+Verified on 2026-09-05 without sending WhatsApp: the existing authenticated Meta app was subscribed to the already configured Convex-development WABA after a Mitra request failed with Meta code `131005`. The sender, recipients, token, scopes, webhook URLs, provider, Convex deployment, and application code were unchanged. A fresh Mohit preview remained exact and behind the explicit SEND gate.
+
 ### M0 — Stabilise Aevia
 
 Implemented locally on 2026-09-03:
