@@ -15,10 +15,11 @@
 - Pari household: `jx76yambxwk64rtj3f88a6zvr98dsac8`
 - Pari plan: `nd77jtw3ypj6g4afqpt6pam16h8dvac2` (version 1; approved by Pari through the live generated-plan screen)
 - Pari approval timestamp/source: 2026-09-05 05:31:46.921 IST; `household_user`; actor `Pari`
-- Prepared Vaibhav execution: `m170jc97e82tr9sj30a9tgqnp98dvajw`; run `066742c8-2d95-4565-b59d-cc15b1223e57`; no provider dispatch yet
+- Vaibhav execution: `m170jc97e82tr9sj30a9tgqnp98dvajw`; run `066742c8-2d95-4565-b59d-cc15b1223e57`; evidence `EVD-RUN-066742c8-2d95-4565-b59d-cc15b1223e57`
+- Vaibhav delivery result: Meta accepted at 2026-09-05 06:20:47.330 IST, then reported delivery failure at 2026-09-05 06:20:48.000 IST; no inbound reply; no retry yet
 - Deployment timestamp: 2026-09-05 06:09 IST
 - Public access: verified; the canonical root and protected admin API returned HTTP 200 without Vercel authentication
-- WhatsApp sends in this phase: 0
+- WhatsApp sends in this phase: 1 initial attempt; 0 retries
 
 ## Live smoke test
 
@@ -38,7 +39,7 @@
 - Mitra prepare: passed on the live Production deployment; exact preview was `Papa, evening walk ka time ho gaya.` with five configured recipients loaded as masked numbers only
 - SEND gate: passed; confirmation remained explicit and was not used
 - Mobile: passed at 390px with no horizontal overflow on landing, onboarding, dashboard, Household, Mitra, or Tarla
-- First Vaibhav Tarla send blocker: none in the approval, registry, preparation, or Meta-auth checks. The explicit owner-controlled SEND confirmation remains required.
+- Vaibhav live result: accepted by Meta, delivery failed, no inbound reply, and no retry. The stored normalized record did not retain Meta's numeric error code, title, detailed message, or `error_data`, so the exact provider cause is not claimed.
 
 ## Current verification summary
 
