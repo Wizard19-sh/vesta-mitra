@@ -393,6 +393,17 @@ On 2026-09-04, the controlled Tarla Meta loop was rerun with customer-facing fix
 
 The first revised Meta dispatch failed because the development access token expired (`meta_190`). After a manual development-token refresh, one guarded retry resent the unchanged revised instruction through the existing Meta transport and Meta reported delivery. The run remains `revised_waiting` for a real cook acknowledgement; no acknowledgement was fabricated. Canonical evidence is `EVD-016` in `EVIDENCE.md`.
 
+### Beta runner — direct Convex-development execution
+
+On 2026-09-05, the Production `/admin/beta` runner was changed to call the existing Convex-development Tarla and Mitra functions directly. It no longer attempts to invoke the local W4 verifier scripts from Vercel. The verifier scripts and their development-only safety guard remain unchanged.
+
+Verified without a WhatsApp dispatch:
+
+- BETA-5 recipient, masking, exact-preview, and no-local-verifier checks: passed
+- W4 provider-transport checks: 12/12 passed
+- TypeScript and production build: passed
+- production-like admin Prepare and the canonical Production runner: passed with the explicit SEND gate intact
+
 ## Explicit remaining work
 
 ### NEXT — closed-beta product readiness
