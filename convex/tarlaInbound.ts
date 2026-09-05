@@ -5,6 +5,7 @@ import { planMeal, type CalculatedMealPlan } from "../lib/tarlaPlanner";
 import type { CalculatedDayPlan } from "../lib/tarlaDayPlanner";
 import {
   composeCookInstruction,
+  composeCookShoppingAcknowledgement,
   composeDayCookInstruction,
   composeRecipeQuestionReply,
 } from "../lib/tarlaMessages";
@@ -230,6 +231,31 @@ export const ingestCookSignal = mutation({
       latestInboundSignalId: signalId,
       updatedAt: Date.now(),
     });
+
+    if (interpretation.kind === "shopping_needed_acknowledged") {
+      const cook = await ctx.db.get(execution.cookMemberId);
+      if (!cook) throw new Error("Cook member was not found");
+
+      const result = await handleShoppingNeededAcknowledgement(ctx, {
+        householdId: plan.householdId,
+        execution,
+        run,
+        endpoint,
+        cook,
+        ingredientKey: interpretation.ingredientKey,
+        ingredientName: interpretation.ingredientName,
+        order,
+        planMetadata: { mealPlanId: String(plan._id) },
+      });
+      return {
+        signalId,
+        matched: true,
+        executionId: execution._id,
+        state: "acknowledged",
+        acknowledgementMessageId: result.messageId,
+        userEscalationRequired: false,
+      };
+    }
 
     if (interpretation.kind === "missing_ingredient") {
       const currentItems = await getCalculatedPlanItems(ctx, plan._id);
@@ -921,6 +947,28 @@ async function handleDayExecutionSignal(
     updatedAt: Date.now(),
   });
 
+  if (interpretation.kind === "shopping_needed_acknowledged") {
+    const result = await handleShoppingNeededAcknowledgement(ctx, {
+      householdId: dayPlan.householdId,
+      execution: normalized.execution,
+      run,
+      endpoint: normalized.endpoint,
+      cook,
+      ingredientKey: interpretation.ingredientKey,
+      ingredientName: interpretation.ingredientName,
+      order,
+      planMetadata: { dayPlanId: String(dayPlan._id) },
+    });
+    return {
+      signalId,
+      matched: true,
+      executionId: normalized.execution._id,
+      state: "acknowledged",
+      acknowledgementMessageId: result.messageId,
+      userEscalationRequired: false,
+    };
+  }
+
   if (interpretation.kind === "missing_ingredient") {
     await markIngredientUnavailable(
       ctx,
@@ -1478,6 +1526,148 @@ async function markIngredientUnavailable(
       updatedAt: now,
     });
   }
+}
+
+async function markIngredientShoppingNeeded(
+  ctx: MutationCtx,
+  householdId: Id<"households">,
+  executionId: Id<"tarlaExecutions">,
+  ingredientKey: string,
+  ingredientName: string,
+) {
+  const now = Date.now();
+  const shopping = await ctx.db
+    .query("shoppingNeededItems")
+    .withIndex("by_household_and_ingredient", (q) =>
+      q.eq("householdId", householdId).eq("ingredientKey", ingredientKey),
+    )
+    .collect();
+  const existingNeeded = shopping.find((item) => item.status === "needed");
+
+  if (existingNeeded) {
+    await ctx.db.patch(existingNeeded._id, {
+      tarlaExecutionId: executionId,
+      reason: "Cook said this ingredient needs to be ordered for the approved plan",
+      source: "cook_shopping_request",
+      updatedAt: now,
+    });
+    return;
+  }
+
+  await ctx.db.insert("shoppingNeededItems", {
+    householdId,
+    tarlaExecutionId: executionId,
+    ingredientKey,
+    item: ingredientName,
+    reason: "Cook said this ingredient needs to be ordered for the approved plan",
+    source: "cook_shopping_request",
+    status: "needed",
+    addedAt: now,
+    updatedAt: now,
+  });
+}
+
+async function handleShoppingNeededAcknowledgement(
+  ctx: MutationCtx,
+  input: {
+    householdId: Id<"households">;
+    execution: Doc<"tarlaExecutions">;
+    run: Doc<"agentRuns">;
+    endpoint: Doc<"communicationEndpoints">;
+    cook: Doc<"members">;
+    ingredientKey: string;
+    ingredientName: string;
+    order: number;
+    planMetadata: {
+      mealPlanId?: string;
+      dayPlanId?: string;
+    };
+  },
+) {
+  await markIngredientShoppingNeeded(
+    ctx,
+    input.householdId,
+    input.execution._id,
+    input.ingredientKey,
+    input.ingredientName,
+  );
+
+  let order = input.order;
+  await addCompletedStep(
+    ctx,
+    input.run._id,
+    order++,
+    "update_shopping_list",
+    "Record the ingredient the cook said needs ordering",
+    `Added ${input.ingredientName} to shopping-needed`,
+  );
+
+  const acknowledgement = composeCookShoppingAcknowledgement({
+    cookName: input.cook.preferredSalutation ?? input.cook.name,
+    ingredientName: input.ingredientName,
+    preferredLanguage:
+      input.endpoint.preferredLanguage ?? input.cook.languagePreference,
+  });
+  const sent = await getMessageTransport(ctx).sendMessage({
+    recipient: {
+      memberId: String(input.cook._id),
+      endpointId: String(input.endpoint._id),
+      address: input.endpoint.address,
+    },
+    channel: input.endpoint.channel,
+    message: acknowledgement,
+    metadata: {
+      householdId: String(input.householdId),
+      runId: String(input.run._id),
+      tarlaExecutionId: String(input.execution._id),
+      ...input.planMetadata,
+      purpose: "cook_shopping_acknowledgement",
+      recipientClass: input.execution.recipientClass ?? "hired_cook",
+    },
+  });
+
+  await ctx.db.patch(input.execution._id, {
+    status: "acknowledged",
+    userEscalationRequired: false,
+    updatedAt: Date.now(),
+  });
+  await addCompletedStep(
+    ctx,
+    input.run._id,
+    order++,
+    "send_acknowledgement",
+    "Acknowledge the cook's accepted instruction and shopping note",
+    "Sent the shopping acknowledgement through the shared transport",
+    {
+      component: "transport",
+      tool: "whatsapp",
+      provider: sent.provider,
+      usageStatus: "not_applicable",
+      outcome: sent.providerStatus,
+    },
+  );
+  await addCompletedStep(
+    ctx,
+    input.run._id,
+    order,
+    "complete",
+    "Complete kitchen coordination after cook acceptance",
+    "Cook accepted the current instruction and identified an item for shopping",
+  );
+  await completeRun(
+    ctx,
+    input.run,
+    `Cook accepted the instruction; ${input.ingredientName} was added to shopping-needed`,
+  );
+  await markTaskComplete(ctx, {
+    run: input.run,
+    agent: "tarla",
+    outcome: "COOK_ACKNOWLEDGED_WITH_SHOPPING_NEEDED",
+    recipientClass: input.execution.recipientClass ?? "hired_cook",
+    surface: transportSurface(input.endpoint),
+  });
+
+  return sent;
 }
 
 async function persistSignal(

@@ -478,3 +478,8 @@ The already-approved instruction had previously run only through the development
 - GrowthX scoring and proof plan: [EVIDENCE.md](./EVIDENCE.md)
 - Build Week and closed-beta execution order: [BETA_LAUNCH.md](./BETA_LAUNCH.md)
 - Repeatable scripts: `scripts/verify-w1.mjs`, `scripts/verify-w2.mjs`, `scripts/verify-w3.mjs`, `scripts/verify-w3-1.mjs`, and `scripts/verify-w4.mjs`
+
+- Added a narrow deterministic Tarla rule for cook replies that combine an
+  ingredient-ordering need with acceptance of the current instruction.
+  Missing-ingredient substitution and ordinary acknowledgement behavior remain
+  unchanged.

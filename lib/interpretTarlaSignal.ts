@@ -7,6 +7,12 @@ export type TarlaCookSignalInterpretation =
       ingredientName: string;
       summary: string;
     }
+  | {
+      kind: "shopping_needed_acknowledged";
+      ingredientKey: string;
+      ingredientName: string;
+      summary: string;
+    }
   | { kind: "recipe_question"; summary: string }
   | { kind: "acknowledgement"; summary: string }
   | { kind: "timing_issue"; summary: string }
@@ -32,6 +38,19 @@ export function interpretTarlaCookSignal(input: {
   }
 
   const ingredient = findIngredientInText(raw);
+  const shoppingNeeded =
+    /\b(order\s+(?:karna|karni)\s+padega|mangwana\s+padega|order\s+kar\s+lena)\b/i.test(
+      lower,
+    );
+  const accepted = /\b(no problem|theek hai|thik hai)\b/i.test(lower);
+  if (ingredient && shoppingNeeded && accepted) {
+    return {
+      kind: "shopping_needed_acknowledged",
+      ingredientKey: ingredient.key,
+      ingredientName: ingredient.name,
+      summary: `Cook said ${ingredient.name} needs ordering and accepted the current instruction.`,
+    };
+  }
   if (
     ingredient &&
     /\b(nahi hai|nahin hai|not available|unavailable|out of|khatam|finished)\b/i.test(lower)

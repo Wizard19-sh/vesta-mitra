@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import ts from "typescript";
 import {
   allocateMealsToCookVisits,
   composeCaretakerNoResponseFollowUp,
@@ -125,6 +126,21 @@ const source = {
   tarlaMessages: await readFile(new URL("../lib/tarlaMessages.ts", import.meta.url), "utf8"),
   mitraMessages: await readFile(new URL("../lib/composeRoutineMessage.ts", import.meta.url), "utf8"),
 };
+const runnableTarlaInterpreter = source.tarlaInterpreter.replace(
+  /import \{ findIngredientInText \} from "\.\/tarlaIngredientData";/,
+  `const findIngredientInText = (raw) => {
+    const value = raw.toLocaleLowerCase();
+    if (value.includes("tofu")) return { key: "tofu", name: "Tofu" };
+    if (value.includes("palak")) return { key: "spinach", name: "spinach" };
+    return undefined;
+  };`,
+);
+const transpiledTarlaInterpreter = ts.transpileModule(runnableTarlaInterpreter, {
+  compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const { interpretTarlaCookSignal } = await import(
+  `data:text/javascript;base64,${Buffer.from(transpiledTarlaInterpreter).toString("base64")}`
+);
 check("Mitra first contact speaks as Mitra, not as the primary user", () => {
   assert.match(source.mitraMessages, /Main Mitra hoon, Aevia ka routine assistant/);
   assert.doesNotMatch(source.mitraMessages, /\$\{setupBy\} ne mujhe|monitor your parents/i);
@@ -140,6 +156,44 @@ check("Missing ingredient is bounded", () => {
 check("Ordinary cook acknowledgement is not meal completion", () => {
   assert.match(source.tarlaInterpreter, /kind: "acknowledgement"/);
   assert.doesNotMatch(source.tarlaInterpreter, /meal.*verified|cooking.*complete/i);
+});
+check("Tarla recognizes ordering plus acceptance", () => {
+  for (const rawContent of [
+    "Tofu order karna padega. No problem.",
+    "Tofu mangwana padega, theek hai.",
+    "No problem, tofu order kar lena.",
+  ]) {
+    const result = interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent,
+    });
+    assert.equal(result.kind, "shopping_needed_acknowledged");
+    assert.equal(result.ingredientKey, "tofu");
+  }
+});
+check("Plain Tarla acknowledgement remains an acknowledgement", () => {
+  assert.equal(
+    interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent: "Theek hai.",
+    }).kind,
+    "acknowledgement",
+  );
+});
+check("Palak unavailable remains on the substitution path", () => {
+  assert.equal(
+    interpretTarlaCookSignal({
+      signalType: "text",
+      rawContent: "Palak nahi hai",
+    }).kind,
+    "missing_ingredient",
+  );
+});
+check("Family-cook shopping acknowledgement is brief and truthful", () => {
+  assert.match(
+    source.tarlaMessages,
+    /return `Okay \$\{cook\}\. I've added \$\{ingredient\} to the shopping list\. Thank you\.`/,
+  );
 });
 check("Raw Mitra signal is persisted before interpretation", () => assert(source.mitraInbound.indexOf("persistSignal(ctx") < source.mitraInbound.indexOf("interpretRoutineSignal({")));
 check("Raw Tarla signal is persisted before interpretation", () => assert(source.tarlaInbound.indexOf("persistSignal(ctx") < source.tarlaInbound.indexOf("interpretTarlaCookSignal({")));

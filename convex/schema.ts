@@ -620,6 +620,7 @@ export default defineSchema({
     source: v.union(
       v.literal("user"),
       v.literal("cook_missing_ingredient"),
+      v.literal("cook_shopping_request"),
       v.literal("tarla_plan"),
     ),
     status: v.union(

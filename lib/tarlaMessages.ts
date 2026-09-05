@@ -84,6 +84,21 @@ export function composeRecipeQuestionReply(recipeId: string) {
   return `${recipe.name}: ${recipe.cookLine}`;
 }
 
+export function composeCookShoppingAcknowledgement(input: {
+  cookName: string;
+  ingredientName: string;
+  preferredLanguage?: string;
+}) {
+  const cook = input.cookName.trim();
+  const ingredient = input.ingredientName.trim().toLocaleLowerCase();
+  const language = input.preferredLanguage?.toLocaleLowerCase() ?? "hinglish";
+
+  if (language.includes("english")) {
+    return `Okay ${cook}. I've added ${ingredient} to the shopping list. Thank you.`;
+  }
+  return `Theek hai ${cook}. ${input.ingredientName.trim()} shopping list mein add kar diya. Thank you.`;
+}
+
 export function composeDayCookInstruction(input: {
   visitLabel: string;
   targetDate: string;
