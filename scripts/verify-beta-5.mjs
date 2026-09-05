@@ -62,7 +62,13 @@ const dayPlanning = readFileSync(new URL("../convex/tarlaDayPlanning.ts", import
 assert.match(dayPlanning, /owner_test_admin/);
 assert.match(dayPlanning, /household user did not click approval/);
 assert.match(dayPlanning, /Test-admin plan approval is not configured or authorised/);
+assert.match(dayPlanning, /prepareScheduledDayExecution/);
+assert.match(dayPlanning, /ctx\.scheduler\.cancel/);
+assert.match(dayPlanning, /status: "instruction_ready"/);
+assert.match(dayPlanning, /developmentMessages\.length \|\| providerMessages\.length/);
 const betaAdmin = readFileSync(new URL("../convex/betaAdmin.ts", import.meta.url), "utf8");
+assert.match(betaAdmin, /prepareScheduledDayExecution/);
+assert.match(betaAdmin, /item\.status === "scheduled"/);
 assert.match(betaAdmin, /resolveCanonicalInboundContact/);
 assert.match(betaAdmin, /signal\.metadata\.webhookValidatedAt === undefined/);
 assert.match(betaAdmin, /communicationEndpointId: endpoint\._id/);

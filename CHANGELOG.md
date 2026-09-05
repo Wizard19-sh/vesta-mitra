@@ -55,6 +55,10 @@ Verified on 2026-09-05 without sending WhatsApp: the existing authenticated Meta
 
 Verified on 2026-09-05 without sending WhatsApp: the newest live-created Household 1 replaced older Phase A and earlier household mappings for Mohit and Krishna. Their existing validated Meta inbounds now resolve to the new shared-member endpoints, while historical records remain preserved. The user-approved Tarla plan is retained unchanged; Krishna prepare fails closed because its scheduled execution does not yet contain an exact composed instruction. Convex also contains no Ivvan member in this saved household, so the missing record is reported rather than invented.
 
+### Krishna scheduled-to-prepared Tarla handoff
+
+Implemented and verified on 2026-09-05: the existing beta prepare operation can safely convert a current user-approved, future scheduled Tarla execution into an exact prepared payload. It reuses the original plan, execution, and run; confirms no transport activity; composes through the shared Tarla instruction function; cancels the old scheduler job; and leaves dispatch exclusively behind `sendPreparedDayInstruction`. No WhatsApp message was sent. Meta authentication later returned HTTP 401 because the temporary token expired.
+
 ### M0 — Stabilise Aevia
 
 Implemented locally on 2026-09-03:

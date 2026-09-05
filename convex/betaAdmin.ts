@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
+import { prepareScheduledDayExecution } from "./tarlaDayPlanning";
 import { composeDayExecutionInstruction } from "./tarlaInstruction";
 
 export const resolveCanonicalInboundContact = mutation({
@@ -130,6 +131,19 @@ export const prepareApprovedTarlaInstruction = mutation({
         runId: run?.runId,
         instruction: existingPrepared.instruction,
       };
+    }
+
+    const scheduled = executions.find(
+      (item) =>
+        item.communicationEndpointId === endpoint._id &&
+        item.status === "scheduled" &&
+        !item.instruction,
+    );
+    if (scheduled) {
+      return prepareScheduledDayExecution(ctx, {
+        ownerKey: args.ownerKey,
+        executionId: scheduled._id,
+      });
     }
 
     const source = executions.find(

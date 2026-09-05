@@ -11,6 +11,7 @@ import {
 } from "../lib/tarlaVisitSchedule";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
+import type { MutationCtx } from "./_generated/server";
 import { mutation, query } from "./_generated/server";
 import { composeDayExecutionInstruction } from "./tarlaInstruction";
 import {
@@ -623,6 +624,82 @@ export const approveDayPlan = mutation({
     };
   },
 });
+
+export async function prepareScheduledDayExecution(
+  ctx: MutationCtx,
+  input: {
+    ownerKey: string;
+    executionId: Id<"tarlaExecutions">;
+  },
+) {
+  const execution = await ctx.db.get(input.executionId);
+  if (
+    !execution ||
+    execution.status !== "scheduled" ||
+    execution.instruction ||
+    !execution.dayPlanId ||
+    !execution.scheduledJobId
+  ) {
+    throw new Error("Scheduled Tarla execution is not eligible for preparation");
+  }
+
+  const dayPlan = await requireOwnedDayPlan(
+    ctx,
+    execution.dayPlanId,
+    input.ownerKey,
+  );
+  if (
+    !dayPlan.approvedAt ||
+    dayPlan.approvalSource !== "household_user" ||
+    !["scheduled", "executing"].includes(dayPlan.status) ||
+    execution.planVersion !== dayPlan.version
+  ) {
+    throw new Error("Scheduled Tarla execution is not from the current user-approved plan");
+  }
+
+  const [developmentMessages, providerMessages] = await Promise.all([
+    ctx.db
+      .query("devTransportMessages")
+      .withIndex("by_tarla_execution", (q) =>
+        q.eq("tarlaExecutionId", execution._id),
+      )
+      .collect(),
+    ctx.db
+      .query("transportMessages")
+      .withIndex("by_tarla_execution", (q) =>
+        q.eq("tarlaExecutionId", execution._id),
+      )
+      .collect(),
+  ]);
+  if (developmentMessages.length || providerMessages.length) {
+    throw new Error("Scheduled Tarla execution already has transport activity");
+  }
+
+  const composed = await composeDayExecutionInstruction(
+    ctx,
+    execution,
+    dayPlan,
+  );
+  await ctx.scheduler.cancel(
+    execution.scheduledJobId as Id<"_scheduled_functions">,
+  );
+  await ctx.db.patch(execution._id, {
+    status: "instruction_ready",
+    instruction: composed.instruction,
+    latestInstruction: composed.instruction,
+    scheduledFor: undefined,
+    scheduledJobId: undefined,
+    updatedAt: Date.now(),
+  });
+
+  const run = await ctx.db.get(execution.runId);
+  return {
+    dayPlanId: dayPlan._id,
+    executionId: execution._id,
+    runId: run?.runId,
+    instruction: composed.instruction,
+  };
+}
 
 export const sendPreparedDayInstruction = mutation({
   args: { ownerKey: v.string(), executionId: v.id("tarlaExecutions") },
